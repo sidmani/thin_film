@@ -3,19 +3,12 @@ import pdb
 import scipy
 from .color_system import cs_srgb, cmf
 
-cmf = np.loadtxt("cie-cmf.txt", usecols=(1, 2, 3))
-
-
-def xyz_from_xy(x, y):
-    """Return the vector (x, y, 1-x-y)."""
-    return np.array((x, y, 1 - x - y))
-
 
 # sample the height values on a grid
 def resample_heights(r, adv_h, res, bounds):
     # generate coordinates
     # TODO: can do this once instead of every frame
-    px, py = np.mgrid[0 : res[0] : 1, 0 : res[1] : 1]
+    px, py = np.mgrid[0: res[0]: 1, 0: res[1]: 1]
     px = (bounds[2] - bounds[0]) * px / res[0] + bounds[0]
     py = (bounds[3] - bounds[1]) * py / res[1] + bounds[1]
     points = np.c_[px.ravel(), py.ravel()]
@@ -71,7 +64,8 @@ def render_frame(r, adv_h, res, bounds):
 
     # using refractive index of air (1) and water (1.33)
     # looking at the film orthogonally (theta1=0)
-    amplitudes = interfere(all_wavelengths, n1=1, n2=1.33, theta1=0, d=2 * heights)
+    amplitudes = interfere(all_wavelengths, n1=1,
+                           n2=1.33, theta1=0, d=2 * heights)
 
     # TODO: can do this without reshaping
     amplitudes = np.reshape(amplitudes, (-1, 81))

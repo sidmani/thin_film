@@ -1,6 +1,7 @@
 # colour_system.py
 import numpy as np
 
+cmf = np.loadtxt("cie-cmf.txt", usecols=(1, 2, 3))
 def xyz_from_xy(x, y):
     """Return the vector (x, y, 1-x-y)."""
     return np.array((x, y, 1-x-y))

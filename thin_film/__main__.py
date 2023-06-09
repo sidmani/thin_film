@@ -88,8 +88,8 @@ def step(r, u, Gamma, num_h, adv_h, constants):
                 dim=0,
             )
         )
-        if (bad(force)):
-            pdb.set_trace()
+        # if (bad(force)):
+        #     pdb.set_trace()
 
         # Marangoni force
         force[i] += (
@@ -100,8 +100,8 @@ def step(r, u, Gamma, num_h, adv_h, constants):
                 dim=0,
             )
         )
-        if (bad(force)):
-            pdb.set_trace()
+        # if (bad(force)):
+        #     pdb.set_trace()
         # capillary force is normal to plane; ignored
         # viscosity force (the part in the plane)
         force[i] += (
@@ -109,8 +109,8 @@ def step(r, u, Gamma, num_h, adv_h, constants):
             * constants.mu
             * torch.sum(uij[nb] / num_h[nb] * grad_kernel_reduced)
         )
-        if (bad(force)):
-            pdb.set_trace()
+        # if (bad(force)):
+        #     pdb.set_trace()
         # update numerical height
         new_num_h[i] = constants.V * torch.sum(
             W_spline4(r_len[inclusive_nb], constants.nb_threshold)
@@ -147,7 +147,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
 
-def run(particle_count, steps, constants):
+def run(particle_count, steps, constants, gpu=False):
     bounds = (0, 0, 1, 1)
     frames = []
 
@@ -163,10 +163,17 @@ def run(particle_count, steps, constants):
         num_h = torch.ones((particle_count, 1)) * constants.h_0
         adv_h = torch.ones((particle_count, 1)) * constants.h_0
 
+        if (gpu):
+            r = r.cuda()
+            u = u.cuda()
+            Gamma = Gamma.cuda()
+            num_h = num_h.cuda()
+            adv_h = adv_h.cuda()
+
         # TODO: num_h and adv_h are off by a few orders of magnitude
         for i in tqdm(range(steps), position=0, leave=False):
             r, u, Gamma, num_h, adv_h = step(r, u, Gamma, num_h, adv_h, constants)
-            frames.append(render_frame(r, adv_h, (1024, 1024), bounds))
+            frames.append(render_frame(r.cpu(), adv_h.cpu(), (1024, 1024), bounds))
 
     im1 = plt.imshow(frames[0])
 
@@ -179,7 +186,7 @@ def run(particle_count, steps, constants):
 
 if __name__ == "__main__":
     run(
-        1000,
+        10000,
         20,
         Constants(
             V=1e-7,
@@ -194,4 +201,5 @@ if __name__ == "__main__":
             h_0=250e-9, # initial height (halved)
             mu=1e-7,
         ),
+        gpu=False
     )
