@@ -13,7 +13,7 @@ def step(r, u, Gamma, num_h, adv_h, constants):
     divergence = torch.empty_like(Gamma)
     curvature = torch.empty_like(Gamma)
     pressure = torch.empty_like(Gamma)
-    new_Gamma = torch.empty_like(Gamma)
+    new_Gamma = Gamma.clone()
 
     # gamma_a = ideal gas constant * room temperature
     surface_tension = constants.gamma_0 - (293.15 * scipy.constants.R) * Gamma
@@ -26,7 +26,7 @@ def step(r, u, Gamma, num_h, adv_h, constants):
         nb = (r_len < constants.nb_threshold) & (r_len > 0)
 
         # divergence
-        grad_kernel = grad_W_spiky(rij[nb], constants.kernel_h_spiky, r_len[nb])
+        grad_kernel = grad_W_spiky(rij[nb], constants.nb_threshold, r_len[nb])
         grad_kernel_reduced = (
             2 * torch.sqrt(torch.sum(grad_kernel**2, dim=1)) / r_len[nb]
         )
@@ -55,7 +55,7 @@ def step(r, u, Gamma, num_h, adv_h, constants):
         + constants.alpha_d * divergence
     )
 
-    # advected height. could vectorize this
+    # advected height
     adv_h += -adv_h * divergence * constants.delta_t
 
     force = torch.zeros_like(r)
@@ -67,10 +67,11 @@ def step(r, u, Gamma, num_h, adv_h, constants):
         uij = u - u[i]
         # compute the neighborhood
         r_len = torch.sqrt(torch.sum(rij**2, dim=1))
+        # create a neighborhood with and without the current particle
         inclusive_nb = r_len < constants.nb_threshold
         nb = inclusive_nb & (r_len > 0)
 
-        grad_kernel = grad_W_spiky(rij[nb], constants.kernel_h_spiky, r_len[nb])
+        grad_kernel = grad_W_spiky(rij[nb], constants.nb_threshold, r_len[nb])
         grad_kernel_reduced = (
             2 * torch.sqrt(torch.sum(grad_kernel**2, dim=1)) / r_len[nb]
         )[:, None]
@@ -113,9 +114,8 @@ def step(r, u, Gamma, num_h, adv_h, constants):
         #     pdb.set_trace()
 
         # update numerical height
-        # TODO: this should include the current particle
         new_num_h[i] = constants.V * torch.sum(
-            W_spline4(r_len[inclusive_nb], constants.kernel_h_spline4)
+            W_spline4(r_len[inclusive_nb], constants.nb_threshold)
         )
 
     # 5. update velocity
@@ -135,8 +135,6 @@ Constants = namedtuple(
         "nb_threshold",
         "gamma_0",
         "delta_t",
-        "kernel_h_spiky",
-        "kernel_h_spline4",
         "alpha_c",  # surfactant diffusion coefficient
         "alpha_h",
         "alpha_k",
@@ -163,12 +161,12 @@ def run(particle_count, steps, constants):
         # surfactant concentration (Γ)
         Gamma = torch.zeros((particle_count, 1))
         # numerical and advected height
-        num_h = torch.ones((particle_count, 1))
-        adv_h = torch.ones((particle_count, 1))
+        num_h = torch.ones((particle_count, 1)) * constants.h_0
+        adv_h = torch.ones((particle_count, 1)) * constants.h_0
 
         for i in tqdm(range(steps), position=0, leave=False):
             r, u, Gamma, num_h, adv_h = step(r, u, Gamma, num_h, adv_h, constants)
-            frames.append(render_frame(r, adv_h, (1024, 1024), bounds))
+            frames.append(render_frame(r, num_h, (1024, 1024), bounds))
 
     im1 = plt.imshow(frames[0])
 
@@ -184,18 +182,16 @@ if __name__ == "__main__":
         1000,
         20,
         Constants(
-            V=1e-6,
-            m=1e-6,
-            nb_threshold=0.01,
+            V=1e-7,
+            m=1e-7,
+            nb_threshold=0.001,
             gamma_0=72e-3,  # surface tension of water at room temp = 72 mN/m
             delta_t=1 / 60,  # 60 fps
-            kernel_h_spiky=0.1,
-            kernel_h_spline4=0.1,
-            alpha_c=1, # diffusion coefficient of surfactant
-            alpha_d=1,
-            alpha_h=1,
-            alpha_k=1,
-            h_0=500e-9,
-            mu=0.01,
+            alpha_c=1e-8, # diffusion coefficient of surfactant
+            alpha_d=1e-8,
+            alpha_h=1e-8,
+            alpha_k=1e-8,
+            h_0=300e-9, # initial height (halved); 600 nM seems reasonable
+            mu=1e-7,
         ),
     )
