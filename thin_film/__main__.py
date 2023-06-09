@@ -6,8 +6,8 @@ from .kernel import grad_W_spiky, W_spline4
 from .render import render_frame
 from tqdm import tqdm
 
-def contains_nan(t):
-    return torch.any(torch.isnan(t)).item()
+def bad(t):
+    return torch.any(torch.isnan(t) | torch.isinf(t)).item()
 
 def step(r, u, Gamma, num_h, adv_h, constants):
     divergence = torch.empty_like(Gamma)
@@ -88,8 +88,8 @@ def step(r, u, Gamma, num_h, adv_h, constants):
                 dim=0,
             )
         )
-        # if (contains_nan(force)):
-        #     pdb.set_trace()
+        if (bad(force)):
+            pdb.set_trace()
 
         # Marangoni force
         force[i] += (
@@ -100,9 +100,8 @@ def step(r, u, Gamma, num_h, adv_h, constants):
                 dim=0,
             )
         )
-        # if (contains_nan(force)):
-        #     pdb.set_trace()
-
+        if (bad(force)):
+            pdb.set_trace()
         # capillary force is normal to plane; ignored
         # viscosity force (the part in the plane)
         force[i] += (
@@ -110,14 +109,14 @@ def step(r, u, Gamma, num_h, adv_h, constants):
             * constants.mu
             * torch.sum(uij[nb] / num_h[nb] * grad_kernel_reduced)
         )
-        # if (contains_nan(force)):
-        #     pdb.set_trace()
-
+        if (bad(force)):
+            pdb.set_trace()
         # update numerical height
         new_num_h[i] = constants.V * torch.sum(
             W_spline4(r_len[inclusive_nb], constants.nb_threshold)
         )
 
+    # TODO: updating by half should improve stability
     # 5. update velocity
     u += constants.delta_t / constants.m * force
     # 6. update position
@@ -164,9 +163,10 @@ def run(particle_count, steps, constants):
         num_h = torch.ones((particle_count, 1)) * constants.h_0
         adv_h = torch.ones((particle_count, 1)) * constants.h_0
 
+        # TODO: num_h and adv_h are off by a few orders of magnitude
         for i in tqdm(range(steps), position=0, leave=False):
             r, u, Gamma, num_h, adv_h = step(r, u, Gamma, num_h, adv_h, constants)
-            frames.append(render_frame(r, num_h, (1024, 1024), bounds))
+            frames.append(render_frame(r, adv_h, (1024, 1024), bounds))
 
     im1 = plt.imshow(frames[0])
 
@@ -184,14 +184,14 @@ if __name__ == "__main__":
         Constants(
             V=1e-7,
             m=1e-7,
-            nb_threshold=0.001,
+            nb_threshold=0.01,
             gamma_0=72e-3,  # surface tension of water at room temp = 72 mN/m
             delta_t=1 / 60,  # 60 fps
             alpha_c=1e-8, # diffusion coefficient of surfactant
             alpha_d=1e-8,
             alpha_h=1e-8,
             alpha_k=1e-8,
-            h_0=300e-9, # initial height (halved); 600 nM seems reasonable
+            h_0=250e-9, # initial height (halved)
             mu=1e-7,
         ),
     )
