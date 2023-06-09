@@ -1,118 +1,123 @@
-from collections import namedtuple
+from dataclasses import dataclass
 import pdb
 import scipy.constants
-import torch
+import taichi as ti
+import numpy as np
 from .kernel import grad_W_spiky, W_spline4
 from .render import render_frame
 from tqdm import tqdm
+import thin_film.physics as physics
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
-def bad(t):
-    return torch.any(torch.isnan(t) | torch.isinf(t)).item()
+# ti.init(arch=ti.cpu)
 
-def step(r, u, Gamma, num_h, adv_h, constants):
-    divergence = torch.empty_like(Gamma)
-    curvature = torch.empty_like(Gamma)
-    pressure = torch.empty_like(Gamma)
-    new_Gamma = Gamma.clone()
 
-    # gamma_a = ideal gas constant * room temperature
-    surface_tension = constants.gamma_0 - (293.15 * scipy.constants.R) * Gamma
+# @ti.dataclass
+@dataclass
+class Constants:
+    gamma_0: float
+    gamma_a: float
+    nb_threshold: float
+    alpha_c: float
+    alpha_d: float
+    alpha_h: float
+    alpha_k: float
+    delta_t: float
+    h_0: float
+    V: float
+    mu: float
+    m: float
+
+
+# @ti.kernel
+def step(
+    r: ti.types.ndarray(),
+    u: ti.types.ndarray(),
+    Gamma: ti.types.ndarray(),
+    num_h: ti.types.ndarray(),
+    adv_h: ti.types.ndarray(),
+    constants: Constants,
+):
+    divergence = np.empty_like(Gamma)
+    curvature = np.empty_like(Gamma)
+    pressure = np.empty_like(Gamma)
+    new_Gamma = np.empty_like(Gamma)
+
+    surface_tension = physics.compute_surface_tension(
+        constants.gamma_0, constants.gamma_a, Gamma
+    )
 
     for i in tqdm(range(r.shape[0]), position=1, leave=False):
         rij = r - r[i]
-        uij = u - u[i]
         # compute the neighborhood
-        r_len = torch.sqrt(torch.sum(rij**2, dim=1))
+        r_len = np.sqrt(np.sum(rij**2, axis=1))
         nb = (r_len < constants.nb_threshold) & (r_len > 0)
 
-        # divergence
         grad_kernel = grad_W_spiky(rij[nb], constants.nb_threshold, r_len[nb])
-        grad_kernel_reduced = (
-            2 * torch.sqrt(torch.sum(grad_kernel**2, dim=1)) / r_len[nb]
+        grad_kernel_reduced = 2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / r_len[nb]
+
+        divergence[i] = physics.compute_divergence(
+            constants.V, num_h[nb], u[nb] - u[i], grad_kernel
         )
-        divergence[i] = torch.sum(
-            constants.V / num_h[nb] * torch.sum((uij[nb] * grad_kernel), dim=1)
+        curvature[i] = physics.compute_curvature(
+            constants.V, num_h[nb], num_h[i], grad_kernel_reduced
+        )
+        new_Gamma[i] = physics.compute_surfactant_diffusion(
+            constants.V,
+            num_h[nb],
+            Gamma[nb],
+            Gamma[i],
+            constants.alpha_c,
+            constants.delta_t,
+            grad_kernel_reduced,
         )
 
-        # local curvature
-        curvature[i] = torch.sum(
-            constants.V / num_h[nb] * (num_h[nb] - num_h[i]) * grad_kernel_reduced
-        )
-
-        # surfactant diffusion
-        new_Gamma[i] += (
-            constants.alpha_c
-            * constants.delta_t
-            * torch.sum(
-                constants.V / num_h[nb] * (Gamma[nb] - Gamma[i]) * grad_kernel_reduced
-            )
-        )
-
-    # pressure
-    pressure = (
-        constants.alpha_h * (num_h / constants.h_0 - 1)
-        + constants.alpha_k * surface_tension * curvature
-        + constants.alpha_d * divergence
+    pressure = physics.compute_pressure(
+        num_h,
+        constants.h_0,
+        constants.alpha_h,
+        constants.alpha_k,
+        constants.alpha_d,
+        surface_tension,
+        curvature,
+        divergence,
     )
-
-    # advected height
     adv_h += -adv_h * divergence * constants.delta_t
 
-    force = torch.zeros_like(r)
-    new_num_h = torch.empty_like(num_h)
+    force = np.zeros_like(r)
+    new_num_h = np.empty_like(num_h)
 
     # compute forces
     for i in tqdm(range(r.shape[0]), position=1, leave=False):
         rij = r - r[i]
-        uij = u - u[i]
         # compute the neighborhood
-        r_len = torch.sqrt(torch.sum(rij**2, dim=1))
+        r_len = np.sqrt(np.sum(rij**2, axis=1))
         # create a neighborhood with and without the current particle
         inclusive_nb = r_len < constants.nb_threshold
         nb = inclusive_nb & (r_len > 0)
 
         grad_kernel = grad_W_spiky(rij[nb], constants.nb_threshold, r_len[nb])
         grad_kernel_reduced = (
-            2 * torch.sqrt(torch.sum(grad_kernel**2, dim=1)) / r_len[nb]
+            2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / r_len[nb]
         )[:, None]
 
         # TODO: vorticity confinement force
         # pressure force
-        force[i] += (
-            2
-            * constants.V**2
-            * torch.sum(
-                num_h[i]
-                * (pressure[i] / num_h[i] ** 2 + pressure[nb] / num_h[nb] ** 2)
-                * grad_kernel,
-                dim=0,
-            )
+        force[i] += physics.pressure_force(
+            constants.V, num_h[nb], pressure[nb], num_h[i], pressure[i], grad_kernel
         )
-        # if (bad(force)):
-        #     pdb.set_trace()
-
-        # Marangoni force
-        force[i] += (
-            constants.V**2
-            / num_h[i]
-            * torch.sum(
-                (surface_tension[nb] - surface_tension[i]) / num_h[nb] * grad_kernel,
-                dim=0,
-            )
+        force[i] += physics.marangoni_force(
+            constants.V, num_h[nb], surface_tension[nb], num_h[i], surface_tension[i], grad_kernel
         )
-        # if (bad(force)):
-        #     pdb.set_trace()
         # capillary force is normal to plane; ignored
         # viscosity force (the part in the plane)
-        force[i] += (
-            constants.V**2
-            * constants.mu
-            * torch.sum(uij[nb] / num_h[nb] * grad_kernel_reduced)
+        force[i] += physics.viscosity_force(
+            constants.V, constants.mu, u[nb] - u[i], num_h[nb], grad_kernel_reduced
         )
-        # if (bad(force)):
-        #     pdb.set_trace()
+
         # update numerical height
-        new_num_h[i] = constants.V * torch.sum(
+        new_num_h[i] = constants.V * np.sum(
             W_spline4(r_len[inclusive_nb], constants.nb_threshold)
         )
 
@@ -122,58 +127,28 @@ def step(r, u, Gamma, num_h, adv_h, constants):
     # 6. update position
     r += u * constants.delta_t
 
-
     return r, u, new_Gamma, new_num_h, adv_h
 
 
-Constants = namedtuple(
-    "Constants",
-    [
-        "V",
-        "m",
-        "nb_threshold",
-        "gamma_0",
-        "delta_t",
-        "alpha_c",  # surfactant diffusion coefficient
-        "alpha_h",
-        "alpha_k",
-        "alpha_d",
-        "h_0",
-        "mu",
-    ],
-)
 
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-
-
-def run(particle_count, steps, constants, gpu=False):
+def run(particle_count, steps, constants):
     bounds = (0, 0, 1, 1)
     frames = []
 
-    with torch.no_grad():
-        # position (r) and velocity (u)
-        r = torch.rand((particle_count, 2)) * torch.tensor(
-            [bounds[2] - bounds[0], bounds[3] - bounds[1]]
-        ) + torch.tensor([bounds[0], bounds[1]])
-        u = torch.zeros((particle_count, 2))
-        # surfactant concentration (Γ)
-        Gamma = torch.zeros((particle_count, 1))
-        # numerical and advected height
-        num_h = torch.ones((particle_count, 1)) * constants.h_0
-        adv_h = torch.ones((particle_count, 1)) * constants.h_0
+    r = np.random.rand(particle_count, 2) * np.array(
+        [bounds[2] - bounds[0], bounds[3] - bounds[1]]
+    ) + np.array([bounds[0], bounds[1]])
+    u = np.zeros((particle_count, 2))
+    # surfactant concentration (Γ)
+    Gamma = np.zeros((particle_count, 1))
+    # numerical and advected height
+    num_h = np.ones((particle_count, 1)) * constants.h_0
+    adv_h = np.ones((particle_count, 1)) * constants.h_0
 
-        if (gpu):
-            r = r.cuda()
-            u = u.cuda()
-            Gamma = Gamma.cuda()
-            num_h = num_h.cuda()
-            adv_h = adv_h.cuda()
-
-        # TODO: num_h and adv_h are off by a few orders of magnitude
-        for i in tqdm(range(steps), position=0, leave=False):
-            r, u, Gamma, num_h, adv_h = step(r, u, Gamma, num_h, adv_h, constants)
-            frames.append(render_frame(r.cpu(), adv_h.cpu(), (1024, 1024), bounds))
+    # TODO: num_h and adv_h are off by a few orders of magnitude
+    for i in tqdm(range(steps), position=0, leave=False):
+        r, u, Gamma, num_h, adv_h = step(r, u, Gamma, num_h, adv_h, constants)
+        frames.append(render_frame(r, adv_h, (1024, 1024), bounds))
 
     im1 = plt.imshow(frames[0])
 
@@ -193,13 +168,13 @@ if __name__ == "__main__":
             m=1e-7,
             nb_threshold=0.01,
             gamma_0=72e-3,  # surface tension of water at room temp = 72 mN/m
+            gamma_a=scipy.constants.R * 293.15,
             delta_t=1 / 60,  # 60 fps
-            alpha_c=1e-8, # diffusion coefficient of surfactant
+            alpha_c=1e-8,  # diffusion coefficient of surfactant
             alpha_d=1e-8,
             alpha_h=1e-8,
             alpha_k=1e-8,
-            h_0=250e-9, # initial height (halved)
+            h_0=250e-9,  # initial height (halved)
             mu=1e-7,
         ),
-        gpu=False
     )
