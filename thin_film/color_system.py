@@ -5,7 +5,7 @@ cmf = np.loadtxt("cie-cmf.txt", usecols=(1, 2, 3))
 
 def xyz_from_xy(x, y):
     """Return the vector (x, y, 1-x-y)."""
-    return np.array((x, y, 1-x-y))
+    return np.array((x, y, 1 - x - y))
 
 
 class ColorSystem:
@@ -63,7 +63,9 @@ class ColorSystem:
 
 
 illuminant_D65 = xyz_from_xy(0.3127, 0.3291)
-cs_srgb = ColorSystem(red=xyz_from_xy(0.64, 0.33),
-                      green=xyz_from_xy(0.30, 0.60),
-                      blue=xyz_from_xy(0.15, 0.06),
-                      white=illuminant_D65)
+cs_srgb = ColorSystem(
+    red=xyz_from_xy(0.64, 0.33),
+    green=xyz_from_xy(0.30, 0.60),
+    blue=xyz_from_xy(0.15, 0.06),
+    white=illuminant_D65,
+)

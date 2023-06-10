@@ -4,6 +4,7 @@ from .kernel import grad_W_spiky, W_spline4
 import thin_film.physics as physics
 from itertools import cycle
 from .util import chunk
+from .fork_pdb import fork_pdb
 
 
 def update_fields(r, u, Gamma, num_h, chunk, constants):
