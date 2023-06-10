@@ -9,4 +9,3 @@ def chunk(chunk_size, arrs):
         res.append(np.array_split(a, num_chunks))
 
     return res
-

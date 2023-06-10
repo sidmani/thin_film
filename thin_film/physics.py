@@ -1,8 +1,7 @@
 import numpy as np
-import pdb
 
 # @ti.func
-def compute_surface_tension(gamma_0: ti.float64, gamma_a: ti.float64, Gamma):
+def compute_surface_tension(gamma_0, gamma_a, Gamma):
     return gamma_0 - gamma_a * Gamma
 
 

@@ -1,3 +1,4 @@
+import math
 import numpy as np
 from .kernel import grad_W_spiky, W_spline4
 import thin_film.physics as physics
@@ -5,12 +6,12 @@ from itertools import cycle
 from .util import chunk
 
 
-def update_fields(r, u, Gamma, num_h, constants):
-    divergence = np.empty_like(Gamma)
-    curvature = np.empty_like(Gamma)
-    new_Gamma = np.empty_like(Gamma)
+def update_fields(r, u, Gamma, num_h, chunk, constants):
+    divergence = np.empty((chunk[1] - chunk[0], 1))
+    curvature = np.empty_like(divergence)
+    new_Gamma = np.empty_like(divergence)
 
-    for i in range(r.shape[0]):
+    for i in range(*chunk):
         rij = r - r[i]
         # compute the neighborhood
         r_len = np.sqrt(np.sum(rij**2, axis=1))
@@ -21,13 +22,13 @@ def update_fields(r, u, Gamma, num_h, constants):
         grad_kernel = grad_W_spiky(rij[nb], constants.nb_threshold, r_len[nb])
         grad_kernel_reduced = 2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / r_len[nb]
 
-        divergence[i] = physics.compute_divergence(
+        divergence[i - chunk[0]] = physics.compute_divergence(
             constants.V, num_h_nb, u[nb] - u[i], grad_kernel
         )
-        curvature[i] = physics.compute_curvature(
+        curvature[i - chunk[0]] = physics.compute_curvature(
             constants.V, num_h_nb, num_h[i], grad_kernel_reduced
         )
-        new_Gamma[i] = physics.compute_surfactant_diffusion(
+        new_Gamma[i - chunk[0]] = physics.compute_surfactant_diffusion(
             constants.V,
             num_h_nb,
             Gamma[nb],
@@ -40,11 +41,11 @@ def update_fields(r, u, Gamma, num_h, constants):
     return divergence, curvature, new_Gamma
 
 
-def compute_forces(r, u, num_h, pressure, surface_tension, constants):
-    force = np.zeros_like(r)
-    new_num_h = np.empty_like(num_h)
+def compute_forces(r, u, num_h, pressure, surface_tension, chunk, constants):
+    force = np.zeros((chunk[1] - chunk[0], 2))
+    new_num_h = np.empty((chunk[1] - chunk[0], 1))
     # compute forces
-    for i in range(r.shape[0]):
+    for i in range(*chunk):
         rij = r - r[i]
         # compute the neighborhood
         r_len = np.sqrt(np.sum(rij**2, axis=1))
@@ -59,10 +60,10 @@ def compute_forces(r, u, num_h, pressure, surface_tension, constants):
 
         # TODO: vorticity confinement force
         # pressure force
-        force[i] += physics.pressure_force(
+        force[i - chunk[0]] += physics.pressure_force(
             constants.V, num_h[nb], pressure[nb], num_h[i], pressure[i], grad_kernel
         )
-        force[i] += physics.marangoni_force(
+        force[i - chunk[0]] += physics.marangoni_force(
             constants.V,
             num_h[nb],
             surface_tension[nb],
@@ -72,16 +73,19 @@ def compute_forces(r, u, num_h, pressure, surface_tension, constants):
         )
         # capillary force is normal to plane; ignored
         # viscosity force (the part in the plane)
-        force[i] += physics.viscosity_force(
+        force[i - chunk[0]] += physics.viscosity_force(
             constants.V, constants.mu, u[nb] - u[i], num_h[nb], grad_kernel_reduced
         )
 
         # update numerical height
-        new_num_h[i] = constants.V * np.sum(
+        new_num_h[i - chunk[0]] = constants.V * np.sum(
             W_spline4(r_len[inclusive_nb], constants.nb_threshold)
         )
 
     return force, new_num_h
+
+
+NUM_PROCESSES = 23
 
 
 def step(
@@ -98,10 +102,20 @@ def step(
     )
 
     # TODO: if chunks are manageable the for loops can be removed
-    chunks = chunk(500, [r, u, Gamma, num_h])
+    chunk_size = math.ceil(r.shape[0] / NUM_PROCESSES)
     result = pool.starmap(
         update_fields,
-        zip(*chunks, cycle([constants])),
+        map(
+            lambda idx: [
+                r,
+                u,
+                Gamma,
+                num_h,
+                (idx, min(idx + chunk_size, r.shape[0])),
+                constants,
+            ],
+            range(0, r.shape[0], chunk_size),
+        ),
     )
     transposed_result = list(map(list, zip(*result)))
 
@@ -121,8 +135,21 @@ def step(
     )
     adv_h += -adv_h * divergence * constants.delta_t
 
-    chunks = chunk(500, [r, u, num_h, pressure, surface_tension])
-    result = pool.starmap(compute_forces, zip(*chunks, cycle([constants])))
+    result = pool.starmap(
+        compute_forces,
+        map(
+            lambda idx: [
+                r,
+                u,
+                num_h,
+                pressure,
+                surface_tension,
+                (idx, min(idx + chunk_size, r.shape[0])),
+                constants,
+            ],
+            range(0, r.shape[0], chunk_size),
+        ),
+    )
     transposed_result = list(map(list, zip(*result)))
     force = np.concatenate(transposed_result[0])
     new_num_h = np.concatenate(transposed_result[1])
