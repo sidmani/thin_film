@@ -1,10 +1,12 @@
-# colour_system.py
 import numpy as np
 
 cmf = np.loadtxt("cie-cmf.txt", usecols=(1, 2, 3))
+
+
 def xyz_from_xy(x, y):
     """Return the vector (x, y, 1-x-y)."""
     return np.array((x, y, 1-x-y))
+
 
 class ColorSystem:
     # The CIE colour matching function for 380 - 780 nm in 5 nm intervals
@@ -22,7 +24,7 @@ class ColorSystem:
         self.red, self.green, self.blue = red, green, blue
         self.white = white
         # The chromaticity matrix (rgb -> xyz) and its inverse
-        self.M = np.vstack((self.red, self.green, self.blue)).T 
+        self.M = np.vstack((self.red, self.green, self.blue)).T
         self.MI = np.linalg.inv(self.M)
         # White scaling array
         self.wscale = self.MI.dot(self.white)
@@ -59,8 +61,9 @@ class ColorSystem:
     #         return XYZ
     #     return XYZ / den
 
+
 illuminant_D65 = xyz_from_xy(0.3127, 0.3291)
 cs_srgb = ColorSystem(red=xyz_from_xy(0.64, 0.33),
-                       green=xyz_from_xy(0.30, 0.60),
-                       blue=xyz_from_xy(0.15, 0.06),
-                       white=illuminant_D65)
+                      green=xyz_from_xy(0.30, 0.60),
+                      blue=xyz_from_xy(0.15, 0.06),
+                      white=illuminant_D65)

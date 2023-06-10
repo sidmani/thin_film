@@ -3,15 +3,17 @@ import pdb
 import scipy
 from .color_system import cs_srgb, cmf
 
-# TODO: memory usage here is pretty high 
+# TODO: memory usage here is pretty high
 # because we're processing the frames all at once. makes more sense to chunk them
 # into manageable pieces since the pixels are independent
 
 # sample the height values on a grid
+
+
 def resample_heights(r, adv_h, res, bounds):
     # generate coordinates
     # TODO: can do this once instead of every frame
-    px, py = np.mgrid[0 : res[0] : 1, 0 : res[1] : 1]
+    px, py = np.mgrid[0: res[0]: 1, 0: res[1]: 1]
     px = (bounds[2] - bounds[0]) * px / res[0] + bounds[0]
     py = (bounds[3] - bounds[1]) * py / res[1] + bounds[1]
     points = np.c_[px.ravel(), py.ravel()]

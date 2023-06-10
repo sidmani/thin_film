@@ -16,7 +16,8 @@ def compute_surfactant_diffusion(
     V, num_h, Gamma, Gamma_i, alpha_c, delta_t, grad_kernel_reduced
 ):
     return Gamma_i + (
-        alpha_c * delta_t * np.sum(V / num_h * (Gamma - Gamma_i) * grad_kernel_reduced)
+        alpha_c * delta_t *
+        np.sum(V / num_h * (Gamma - Gamma_i) * grad_kernel_reduced)
     )
 
 
@@ -36,7 +37,7 @@ def pressure_force(V, num_h, pressure, num_h_i, pressure_i, grad_kernel):
         * V**2
         * np.sum(
             num_h_i
-            * (pressure_i / num_h_i ** 2 + pressure / num_h ** 2)
+            * (pressure_i / num_h_i ** 2 + pressure / num_h ** 2)[:, np.newaxis]
             * grad_kernel,
             axis=0,
         )
@@ -48,11 +49,11 @@ def marangoni_force(V, num_h, surface_tension, num_h_i, st_i, grad_kernel):
         V**2
         / num_h_i
         * np.sum(
-            (surface_tension - st_i) / num_h * grad_kernel,
+            ((surface_tension - st_i) / num_h)[:, np.newaxis] * grad_kernel,
             axis=0,
         )
     )
 
 
 def viscosity_force(V, mu, uij, num_h, grad_kernel_reduced):
-    return V**2 * mu * np.sum(uij / num_h * grad_kernel_reduced)
+    return V**2 * mu * np.sum(uij / num_h[:, np.newaxis] * grad_kernel_reduced)

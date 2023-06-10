@@ -7,7 +7,7 @@ from .util import chunk
 
 
 def update_fields(r, u, Gamma, num_h, chunk, constants):
-    divergence = np.empty((chunk[1] - chunk[0], 1))
+    divergence = np.empty((chunk[1] - chunk[0],))
     curvature = np.empty_like(divergence)
     new_Gamma = np.empty_like(divergence)
 
@@ -43,7 +43,7 @@ def update_fields(r, u, Gamma, num_h, chunk, constants):
 
 def compute_forces(r, u, num_h, pressure, surface_tension, chunk, constants):
     force = np.zeros((chunk[1] - chunk[0], 2))
-    new_num_h = np.empty((chunk[1] - chunk[0], 1))
+    new_num_h = np.empty((chunk[1] - chunk[0],))
 
     for i in range(*chunk):
         rij = r - r[i]

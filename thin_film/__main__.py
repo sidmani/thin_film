@@ -33,11 +33,11 @@ def run(particle_count, steps, constants, workers):
     ) + np.array([bounds[0], bounds[1]])
     u = np.zeros((particle_count, 2))
     # surfactant concentration (Γ)
-    Gamma = np.zeros((particle_count, 1))
+    Gamma = np.zeros((particle_count,))
     # numerical and advected height
     # TODO: num_h and adv_h are off by a few orders of magnitude
-    num_h = np.ones((particle_count, 1)) * constants.h_0
-    adv_h = np.ones((particle_count, 1)) * constants.h_0
+    num_h = np.ones((particle_count,)) * constants.h_0
+    adv_h = np.ones((particle_count,)) * constants.h_0
 
     frames = []
     frame_pbar = tqdm(total=steps, position=1, leave=True)
@@ -58,11 +58,9 @@ def run(particle_count, steps, constants, workers):
 
     frames.sort(key=lambda x: x[1])
     frames = list(map(lambda x: x[0], frames))
-    im1 = plt.imshow(frames[0])
 
-    def update(i):
-        im1.set_data(frames[i])
-    ani = FuncAnimation(plt.gcf(), update, interval=200)
+    im1 = plt.imshow(frames[0])
+    ani = FuncAnimation(plt.gcf(), func=lambda f: im1.set_data(f), frames=frames, interval=200,)
     plt.show()
 
 
