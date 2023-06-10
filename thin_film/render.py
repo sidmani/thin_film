@@ -3,6 +3,9 @@ import pdb
 import scipy
 from .color_system import cs_srgb, cmf
 
+# TODO: memory usage here is pretty high 
+# because we're processing the frames all at once. makes more sense to chunk them
+# into manageable pieces since the pixels are independent
 
 # sample the height values on a grid
 def resample_heights(r, adv_h, res, bounds):
@@ -29,7 +32,10 @@ def interfere(wavelength, n1, n2, theta1, d):
     # compute optical path difference
     sin_theta2 = n1 / n2 * np.sin(theta1)
     cos_theta2 = np.sqrt(1 - sin_theta2**2)
+    del sin_theta2
+
     opd = 2 * d * n2 * cos_theta2
+    del cos_theta2
 
     # phase difference, including the half turn added by reflection if necessary
     phase_1 = 0
@@ -37,7 +43,9 @@ def interfere(wavelength, n1, n2, theta1, d):
         phase_1 = np.pi
 
     phase_2 = np.pi * 2 * opd[:, :, np.newaxis] / wavelength
+    del opd
     phase_diff = np.abs(phase_1 - phase_2)
+    del phase_2
 
     # return the new amplitude
     return 2 * np.cos(phase_diff / 2)
@@ -49,8 +57,11 @@ def spec_to_rgb(spec, T):
     # den [batch, 1]
     den = np.sum(xyz, axis=1, keepdims=True)
     xyz = xyz / den
+    del den
 
     rgb = np.einsum("ij,kj->ki", T, xyz)
+    # rgb = T @ xyz.T
+    del xyz
     rgb = np.clip(rgb, 0, None)
 
     # TODO: normalize
@@ -64,10 +75,12 @@ def render_frame(r, adv_h, res, bounds):
 
     # using refractive index of air (1) and water (1.33)
     # looking at the film orthogonally (theta1=0)
-    amplitudes = interfere(all_wavelengths, n1=1, n2=1.33, theta1=0, d=2 * heights)
+    intensity = interfere(all_wavelengths, n1=1, n2=1.33, theta1=0, d=2 * heights) ** 2
+    intensity = np.reshape(intensity, (-1, 81))
+    del heights
+    del all_wavelengths
 
-    # TODO: can do this without reshaping
-    amplitudes = np.reshape(amplitudes, (-1, 81))
-    rgb = spec_to_rgb(amplitudes**2, cs_srgb.T)
+    rgb = spec_to_rgb(intensity, cs_srgb.T)
+    del intensity 
     rgb = np.reshape(rgb, (*res, 3))
     return rgb

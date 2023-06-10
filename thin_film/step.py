@@ -44,7 +44,7 @@ def update_fields(r, u, Gamma, num_h, chunk, constants):
 def compute_forces(r, u, num_h, pressure, surface_tension, chunk, constants):
     force = np.zeros((chunk[1] - chunk[0], 2))
     new_num_h = np.empty((chunk[1] - chunk[0], 1))
-    # compute forces
+
     for i in range(*chunk):
         rij = r - r[i]
         # compute the neighborhood
@@ -78,14 +78,13 @@ def compute_forces(r, u, num_h, pressure, surface_tension, chunk, constants):
         )
 
         # update numerical height
+        # according to the paper this needs to be computed after the positions are updated
+        # i.e. with a new neighborhood
         new_num_h[i - chunk[0]] = constants.V * np.sum(
             W_spline4(r_len[inclusive_nb], constants.nb_threshold)
         )
 
     return force, new_num_h
-
-
-NUM_PROCESSES = 23
 
 
 def step(
@@ -101,8 +100,7 @@ def step(
         constants.gamma_0, constants.gamma_a, Gamma
     )
 
-    # TODO: if chunks are manageable the for loops can be removed
-    chunk_size = math.ceil(r.shape[0] / NUM_PROCESSES)
+    chunk_size = math.ceil(r.shape[0] / len(pool._pool))
     result = pool.starmap(
         update_fields,
         map(

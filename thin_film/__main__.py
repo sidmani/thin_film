@@ -5,7 +5,7 @@ from .render import render_frame
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from multiprocessing import Pool
+from multiprocessing import Pool, cpu_count
 from .step import step
 
 
@@ -27,7 +27,6 @@ class Constants:
 
 def run(particle_count, steps, constants, workers):
     bounds = (0, 0, 1, 1)
-    frames = []
 
     r = np.random.rand(particle_count, 2) * np.array(
         [bounds[2] - bounds[0], bounds[3] - bounds[1]]
@@ -36,22 +35,31 @@ def run(particle_count, steps, constants, workers):
     # surfactant concentration (Γ)
     Gamma = np.zeros((particle_count, 1))
     # numerical and advected height
+    # TODO: num_h and adv_h are off by a few orders of magnitude
     num_h = np.ones((particle_count, 1)) * constants.h_0
     adv_h = np.ones((particle_count, 1)) * constants.h_0
 
-    # TODO: num_h and adv_h are off by a few orders of magnitude
-    frame_results = []
+    frames = []
+    frame_pbar = tqdm(total=steps, position=1, leave=True)
+
+    def submit_frame(frame, idx):
+        frames.append((frame, idx))
+        frame_pbar.update(n=1)
+
     with Pool(workers) as pool:
         for i in tqdm(range(steps), position=0, leave=False):
-            r, u, Gamma, num_h, adv_h = step(r, u, Gamma, num_h, adv_h, constants, pool)
-            fr = pool.apply_async(render_frame, [r, adv_h, (1024, 1024), bounds], callback=lambda frame: frames.append(frame))
-            frame_results.append(fr)
+            r, u, Gamma, num_h, adv_h = step(
+                r, u, Gamma, num_h, adv_h, constants, pool)
+            pool.apply_async(render_frame, [
+                             r, adv_h, (512, 512), bounds], callback=lambda frame: submit_frame(frame, i))
 
-        # wait for frame rendering to complete
-        for fr in tqdm(frame_results):
-            fr.wait()
+        pool.close()
+        pool.join()
 
+    frames.sort(key=lambda x: x[1])
+    frames = list(map(lambda x: x[0], frames))
     im1 = plt.imshow(frames[0])
+
     def update(i):
         im1.set_data(frames[i])
     ani = FuncAnimation(plt.gcf(), update, interval=200)
@@ -60,8 +68,8 @@ def run(particle_count, steps, constants, workers):
 
 if __name__ == "__main__":
     run(
-        10000,
-        50,
+        1000,
+        30,
         Constants(
             V=1e-7,
             m=1e-7,
@@ -76,5 +84,5 @@ if __name__ == "__main__":
             h_0=250e-9,  # initial height (halved)
             mu=1e-7,
         ),
-        workers=23,
+        workers=cpu_count() - 1,
     )
