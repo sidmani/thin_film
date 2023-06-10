@@ -1,12 +1,14 @@
 from dataclasses import dataclass
 import scipy.constants
-import numpy as np
-from .render import render_frame
+from .fork_pdb import fork_pdb
+import time
+from .render import render_frame, generate_sampling_coords
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from multiprocessing import Pool, cpu_count
 from .step import init_values, step
+import pprint
 
 
 @dataclass
@@ -26,34 +28,33 @@ class Constants:
     m: float
 
 
-def run(particle_count, steps, constants, workers):
+def run(steps, constants, workers):
+    print("Thin-film simulator launched with constants:")
+    pprint.pprint(constants)
     bounds = (0, 0, 1, 1)
-    r, u, Gamma, num_h, adv_h = init_values(constants, bounds)
+    res = (512, 512)
 
-    # r = np.random.rand(particle_count, 2) * np.array(
-    #     [bounds[2] - bounds[0], bounds[3] - bounds[1]]
-    # ) + np.array([bounds[0], bounds[1]])
-    # u = np.zeros((particle_count, 2))
-    # # surfactant concentration (Γ)
-    # Gamma = np.zeros((particle_count,))
-    # # numerical and advected height
-    # # TODO: num_h and adv_h are off by a few orders of magnitude
-    # num_h = np.ones((particle_count,)) * constants.h_0
-    # adv_h = np.ones((particle_count,)) * constants.h_0
+    sampling_coords = generate_sampling_coords(res, bounds)
 
     frames = []
-    frame_pbar = tqdm(total=steps, position=1, leave=True, desc="Render")
-
-    def submit_frame(frame, idx):
-        frames.append((frame, idx))
-        frame_pbar.update(n=1)
-
     with Pool(workers) as pool:
+        print(f"Using {workers} workers on {cpu_count()} CPUs.")
+        start_time = time.time()
+        print("Initializing fields...", end="", flush=True)
+        r, u, Gamma, num_h, adv_h = init_values(constants, bounds, pool)
+        print(f"done in {(time.time() - start_time):.2f}s.")
+        print("Entering simulation loop.")
+        frame_pbar = tqdm(total=steps, position=1, leave=True, desc="Render")
+
+        def submit_frame(frame, idx):
+            frames.append((frame, idx))
+            frame_pbar.update(n=1)
+
         for i in tqdm(range(steps), position=0, leave=True, desc="Simulate"):
             r, u, Gamma, num_h, adv_h = step(r, u, Gamma, num_h, adv_h, constants, pool)
             pool.apply_async(
                 render_frame,
-                [r, adv_h, (512, 512), bounds],
+                [r, adv_h, res, sampling_coords],
                 callback=lambda frame: submit_frame(frame, i),
             )
 
@@ -77,7 +78,7 @@ if __name__ == "__main__":
     run(
         30,
         Constants(
-            particle_count=10000,
+            particle_count=25000,
             V=1e-11,
             m=1e-8,
             nb_threshold=0.01,
@@ -91,6 +92,6 @@ if __name__ == "__main__":
             h_0=250e-9,  # initial height (halved)
             mu=1e-7,
         ),
-        # workers=cpu_count() - 1,
-        workers=1,
+        workers=cpu_count() - 1,
+        # workers=1,
     )
