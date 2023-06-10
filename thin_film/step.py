@@ -1,10 +1,34 @@
 import math
 import numpy as np
-from .kernel import grad_W_spiky, W_spline4
+from .kernel import grad_W_spiky, W_spline4, W_spiky
 import thin_film.physics as physics
-from itertools import cycle
-from .util import chunk
 from .fork_pdb import fork_pdb
+
+
+def init_values(constants, bounds):
+    r = np.random.rand(constants.particle_count, 2) * np.array(
+        [bounds[2] - bounds[0], bounds[3] - bounds[1]]
+    ) + np.array([bounds[0], bounds[1]])
+    u = np.zeros_like(r)
+
+    # surfactant concentration (Γ)
+    Gamma = np.zeros((constants.particle_count,))
+
+    # numerical and advected height
+    num_h = np.empty_like(Gamma)
+    for i in range(constants.particle_count):
+        rij = r - r[i]
+        r_len = np.sqrt(np.sum(rij**2, axis=1))
+
+        inclusive_nb = r_len < constants.nb_threshold
+        # nb = (r_len < constants.nb_threshold) & (r_len > 0)
+        num_h[i] = constants.V * np.sum(
+            # W_spline4(r_len[inclusive_nb], constants.nb_threshold)
+            W_spiky(rij[inclusive_nb], constants.nb_threshold, r_len[inclusive_nb])
+        )
+    adv_h = num_h.copy()
+
+    return r, u, Gamma, num_h, adv_h
 
 
 def update_fields(r, u, Gamma, num_h, chunk, constants):
@@ -82,7 +106,8 @@ def compute_forces(r, u, num_h, pressure, surface_tension, chunk, constants):
         # according to the paper this needs to be computed after the positions are updated
         # i.e. with a new neighborhood
         new_num_h[i - chunk[0]] = constants.V * np.sum(
-            W_spline4(r_len[inclusive_nb], constants.nb_threshold)
+            # W_spline4(r_len[inclusive_nb], constants.nb_threshold)
+            W_spiky(rij[inclusive_nb], constants.nb_threshold, r_len[inclusive_nb])
         )
 
     return force, new_num_h
@@ -116,11 +141,7 @@ def step(
             range(0, r.shape[0], chunk_size),
         ),
     )
-    transposed_result = list(map(list, zip(*result)))
-
-    divergence = np.concatenate(transposed_result[0])
-    curvature = np.concatenate(transposed_result[1])
-    new_Gamma = np.concatenate(transposed_result[2])
+    divergence, curvature, new_Gamma = tuple(map(np.concatenate, zip(*result)))
 
     pressure = physics.compute_pressure(
         num_h,
@@ -149,9 +170,7 @@ def step(
             range(0, r.shape[0], chunk_size),
         ),
     )
-    transposed_result = list(map(list, zip(*result)))
-    force = np.concatenate(transposed_result[0])
-    new_num_h = np.concatenate(transposed_result[1])
+    force, new_num_h = tuple(map(np.concatenate, zip(*result)))
 
     # TODO: updating by half should improve stability
     # 5. update velocity

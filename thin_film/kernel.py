@@ -2,13 +2,13 @@ import math
 import numpy as np
 from .fork_pdb import fork_pdb
 
-# def W_spiky(r, h, r_len):
-#     return torch.where(r_len <= h, 15 / (math.pi * h**6) * (h - r_len) ** 3, 0)
+def W_spiky(r, h, r_len):
+    return np.where(r_len <= h, 15 / (math.pi * h**6) * (h - r_len) ** 3, 0)
 
 
 def grad_W_spiky(r, h, r_len):
     grad_len = np.where(
-        r_len <= h, -45 / (math.pi * h**6) * r_len * (h - r_len) ** 2, 0
+        r_len <= h, -45 / (math.pi * h**6) * (h - r_len) ** 2, 0
     )
 
     return (grad_len / r_len)[:, None] * r
