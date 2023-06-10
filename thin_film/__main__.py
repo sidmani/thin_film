@@ -40,16 +40,20 @@ def run(particle_count, steps, constants, workers):
     adv_h = np.ones((particle_count, 1)) * constants.h_0
 
     # TODO: num_h and adv_h are off by a few orders of magnitude
+    frame_results = []
     with Pool(workers) as pool:
         for i in tqdm(range(steps), position=0, leave=False):
             r, u, Gamma, num_h, adv_h = step(r, u, Gamma, num_h, adv_h, constants, pool)
-            frames.append(render_frame(r, adv_h, (1024, 1024), bounds))
+            fr = pool.apply_async(render_frame, [r, adv_h, (1024, 1024), bounds], callback=lambda frame: frames.append(frame))
+            frame_results.append(fr)
+
+        # wait for frame rendering to complete
+        for fr in tqdm(frame_results):
+            fr.wait()
 
     im1 = plt.imshow(frames[0])
-
     def update(i):
         im1.set_data(frames[i])
-
     ani = FuncAnimation(plt.gcf(), update, interval=200)
     plt.show()
 
