@@ -34,7 +34,8 @@ def init_numerical_height(chunk, r, constants):
     return (num_h,)
 
 
-def init_values(constants, bounds, pool):
+def init_values(constants, pool):
+    bounds = constants.bounds
     r = np.random.rand(constants.particle_count, 2) * np.array(
         [bounds[2] - bounds[0], bounds[3] - bounds[1]]
     ) + np.array([bounds[0], bounds[1]])
@@ -178,6 +179,7 @@ def step(
         func=compute_forces,
         constant_args=[r, u, num_h, pressure, surface_tension, constants],
     )
+
     # TODO: updating by half should improve stability
     # 5. update velocity
     u += constants.delta_t / constants.m * force

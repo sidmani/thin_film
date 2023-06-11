@@ -12,7 +12,7 @@ import pprint
 
 
 @dataclass
-class Constants:
+class Parameters:
     particle_count: int
     gamma_0: float
     gamma_a: float
@@ -26,22 +26,22 @@ class Constants:
     V: float
     mu: float
     m: float
+    bounds: tuple
 
 
 def run(steps, constants, workers):
-    print("Thin-film simulator launched with constants:")
+    print("Thin-film simulator launched with parameters:")
     pprint.pprint(constants)
-    bounds = (0, 0, 1, 1)
     res = (512, 512)
 
-    sampling_coords = generate_sampling_coords(res, bounds)
+    sampling_coords = generate_sampling_coords(res, constants.bounds)
 
     frames = []
     with Pool(workers) as pool:
         print(f"Using {workers} workers on {cpu_count()} CPUs.")
         start_time = time.time()
         print("Initializing fields...", end="", flush=True)
-        r, u, Gamma, num_h, adv_h = init_values(constants, bounds, pool)
+        r, u, Gamma, num_h, adv_h = init_values(constants, pool)
         print(f"done in {(time.time() - start_time):.2f}s.")
         print("Entering simulation loop.")
         frame_pbar = tqdm(total=steps, position=1, leave=True, desc="Render")
@@ -77,13 +77,13 @@ def run(steps, constants, workers):
 if __name__ == "__main__":
     run(
         30,
-        Constants(
-            particle_count=25000,
-            V=1e-11,
-            m=1e-8,
-            nb_threshold=0.01,
+        Parameters(
+            particle_count=10000,
+            V=1e-10,
+            m=1e-10,
+            gamma_a=293.15 * scipy.constants.R,
+            nb_threshold=0.1,
             gamma_0=72e-3,  # surface tension of water at room temp = 72 mN/m
-            gamma_a=scipy.constants.R * 293.15,
             delta_t=1 / 60,  # 60 fps
             alpha_c=1e-8,  # diffusion coefficient of surfactant
             alpha_d=1e-8,
@@ -91,6 +91,7 @@ if __name__ == "__main__":
             alpha_k=1e-8,
             h_0=250e-9,  # initial height (halved)
             mu=1e-7,
+            bounds=(0, 0, 1, 1),
         ),
         workers=cpu_count() - 1,
         # workers=1,
