@@ -1,7 +1,13 @@
 import numpy as np
+from .kernel import W_spiky
+import scipy.constants
 
-def compute_surface_tension(gamma_0, gamma_a, Gamma):
-    return gamma_0 - gamma_a * Gamma
+# def compute_numerical_height(V, rij, r_len, nb_threshold):
+#     return V * np.sum(W_spiky(rij, nb_threshold, r_len[inclusive_nb]))
+
+
+def compute_surface_tension(gamma_0, Gamma):
+    return gamma_0 - 293.15 * scipy.constants.R * Gamma
 
 
 def compute_divergence(V, num_h, uij, grad_kernel):

@@ -42,8 +42,10 @@ def init_values(constants, pool):
     u = np.zeros_like(r)
 
     # surfactant concentration (Γ)
-    # TODO: this should probably not be zero
-    Gamma = np.zeros((constants.particle_count,))
+    Gamma = (
+        np.ones((constants.particle_count,))
+        * constants.initial_surfactant_concentration
+    )
 
     # numerical and advected height
     num_h = chunk_starmap(
@@ -84,7 +86,7 @@ def update_fields(chunk, r, u, Gamma, num_h, constants):
             num_h_nb,
             Gamma[nb],
             Gamma[i],
-            constants.alpha_c,
+            constants.surfactant_diffusion_coefficient,
             constants.delta_t,
             grad_kernel_reduced,
         )
@@ -149,7 +151,7 @@ def step(
     pool,
 ):
     surface_tension = physics.compute_surface_tension(
-        constants.gamma_0, constants.gamma_a, Gamma
+        constants.pure_surface_tension, Gamma
     )
 
     divergence, curvature, new_Gamma = chunk_starmap(

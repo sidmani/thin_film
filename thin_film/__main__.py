@@ -14,19 +14,19 @@ import pprint
 @dataclass
 class Parameters:
     particle_count: int
-    gamma_0: float
-    gamma_a: float
-    nb_threshold: float
-    alpha_c: float
-    alpha_d: float
+    nb_threshold: float  # the radius to include particles as neighbors
+    bounds: tuple  # the rectangular boundary of the simulation in the format (x0, y0, x1, y1)
+    initial_surfactant_concentration: float
+    pure_surface_tension: float  # the untainted surface tension (e.g. of pure water)
+    surfactant_diffusion_coefficient: float  # the coefficient in the convection-diffusion equation for the surfactant
     alpha_h: float
     alpha_k: float
+    alpha_d: float
     delta_t: float
     h_0: float
-    V: float
+    V: float  # the half-volume of each particle
+    m: float  # the particle mass
     mu: float
-    m: float
-    bounds: tuple
 
 
 def run(steps, constants, workers):
@@ -79,17 +79,17 @@ if __name__ == "__main__":
         30,
         Parameters(
             particle_count=10000,
-            V=1e-10,
-            m=1e-10,
-            gamma_a=293.15 * scipy.constants.R,
+            V=2e-11,
+            m=2e-11,
+            surfactant_diffusion_coefficient=1e-6,
+            pure_surface_tension=72e-3,  # surface tension of pure water at room temp = 72 mN/m
+            initial_surfactant_concentration=1e-3,
             nb_threshold=0.1,
-            gamma_0=72e-3,  # surface tension of water at room temp = 72 mN/m
             delta_t=1 / 60,  # 60 fps
-            alpha_c=1e-8,  # diffusion coefficient of surfactant
-            alpha_d=1e-8,
-            alpha_h=1e-8,
-            alpha_k=1e-8,
-            h_0=250e-9,  # initial height (halved)
+            alpha_d=1e-3,
+            alpha_h=1e-3,
+            alpha_k=1e-3,
+            h_0=250e-9,
             mu=1e-7,
             bounds=(0, 0, 1, 1),
         ),
