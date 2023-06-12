@@ -69,7 +69,7 @@ def run(steps, constants, workers):
         plt.gcf(),
         func=lambda f: im1.set_data(f),
         frames=frames,
-        interval=200,
+        interval=30,
     )
     plt.show()
 

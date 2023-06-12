@@ -5,14 +5,25 @@ from .util import chunk_starmap
 import scipy.constants
 
 
-def init_numerical_height(chunk, r, constants):
+# the augmentation causes weird patterns which makes me think it's not working
+def init_numerical_height(chunk, r, u, constants):
     num_h = np.empty((chunk[1] - chunk[0],))
     for i in range(*chunk):
-        rij = r - r[i]
-        r_len = np.sqrt(np.sum(rij**2, axis=1))
-        inclusive_nb = r_len < constants.nb_threshold
+        # rij = r - r[i]
+        # r_len = np.sqrt(np.sum(rij**2, axis=1))
+        # inclusive_nb = r_len < constants.nb_threshold
+
+        aug_rij, _, aug_r_len, _ = compute_augmented_nb(
+            r, u, i, [], constants.nb_threshold, constants.bounds
+        )
+        # if (aug_rij.shape[0] > rij[inclusive_nb].shape[0]):
+        #     fork_pdb.set_trace()
+        inclusive_aug_rij = np.concatenate([aug_rij, np.array([[0, 0]])])
+        inclusive_aug_r_len = np.concatenate([aug_r_len, np.array([0])])
+
         num_h[i - chunk[0]] = constants.V * np.sum(
-            W_spiky(rij[inclusive_nb], constants.nb_threshold, r_len[inclusive_nb])
+            # W_spiky(rij[inclusive_nb], constants.nb_threshold, r_len[inclusive_nb])
+            W_spiky(inclusive_aug_rij, constants.nb_threshold, inclusive_aug_r_len)
         )
     return (num_h,)
 
@@ -35,16 +46,19 @@ def init_values(constants, pool):
         total_count=constants.particle_count,
         pool=pool,
         func=init_numerical_height,
-        constant_args=[r, constants],
+        constant_args=[r, u, constants],
     )[0]
     adv_h = num_h.copy()
 
     return r, u, Gamma, num_h, adv_h
 
 
-def augment_nb(r, u, i, arrs_to_augment, nb, bounds):
-    # x0, y0, x1, y1 = bounds
+def compute_augmented_nb(r, u, i, arrs_to_augment, nb_threshold, bounds):
+    # compute the neighborhood
+    r_len = np.linalg.norm(r - r[i], axis=1)
+    nb = (r_len < nb_threshold) & (r_len > 0)
     r_nb = r[nb]
+
     # reflect the neighborhood over the point horizontally and vertically
     p = r[i]
     r_nb_horizontal = p[0] - (r_nb[:, 0] - p[0])
@@ -52,22 +66,30 @@ def augment_nb(r, u, i, arrs_to_augment, nb, bounds):
 
     # find the points whose reflections are over the boundaries
     augment_horizontal = (r_nb_horizontal < bounds[0]) | (r_nb_horizontal > bounds[2])
-    augment_vertical = (r_nb_vertical < bounds[1]) | (r_nb_vertical > bounds[3])
+    # exclude augment_horizontal from augment_vertical to avoid double-counting
+    augment_vertical = (
+        (r_nb_vertical < bounds[1]) | (r_nb_vertical > bounds[3])
+    ) & ~augment_horizontal
 
-    augment = augment_horizontal | augment_vertical
+    # TODO: can short circuit if no augmentation needed
     result = []
     for a in arrs_to_augment:
         a_nb = a[nb]
-        result.append(np.concatenate([a_nb, a_nb[augment]]))
+        result.append(
+            np.concatenate(
+                [
+                    a_nb,
+                    a_nb[augment_horizontal],
+                    a_nb[augment_vertical],
+                ]
+            )
+        )
 
-    r_nb = r[nb]
     aug_r = np.concatenate(
         [
             r_nb,
             np.column_stack([r_nb_horizontal, r_nb[:, 1]])[augment_horizontal],
-            np.column_stack([r_nb[:, 0], r_nb_vertical])[
-                augment_vertical & ~augment_horizontal
-            ],
+            np.column_stack([r_nb[:, 0], r_nb_vertical])[augment_vertical],
         ]
     )
 
@@ -75,12 +97,23 @@ def augment_nb(r, u, i, arrs_to_augment, nb, bounds):
     aug_u = np.concatenate(
         [
             u_nb,
-            u_nb[augment_horizontal] * np.array([[-1, 0]]),
-            u_nb[augment_vertical & ~augment_horizontal] * np.array([[0, -1]]),
+            u_nb[augment_horizontal] * np.array([[-1, 1]]),
+            u_nb[augment_vertical] * np.array([[1, -1]]),
         ]
     )
 
-    return aug_r - r[i], aug_u, result
+    r_len_nb = r_len[nb]
+    aug_r_len = np.concatenate(
+        [
+            r_len_nb,
+            r_len_nb[augment_horizontal],
+            r_len_nb[augment_vertical],
+        ]
+    )
+
+    # the paper sets r to point inwards
+    # and u to point outwards
+    return r[i] - aug_r, aug_u - u[i], aug_r_len, result
 
 
 def update_fields(chunk, r, u, Gamma, num_h, constants):
@@ -89,20 +122,18 @@ def update_fields(chunk, r, u, Gamma, num_h, constants):
     new_Gamma = np.empty_like(divergence)
 
     for i in range(*chunk):
-        # compute the neighborhood
-        rij = r - r[i]
-        r_len = np.linalg.norm(rij, axis=1)
-        nb = (r_len < constants.nb_threshold) & (r_len > 0)
-
-        # augment the neighborhood at the boundaries
-        aug_rij, aug_uij, [aug_r_len, aug_num_h, aug_Gamma] = augment_nb(
-            r, u - u[i], i, [r_len, num_h, Gamma], nb, constants.bounds
+        # construct the augmented neighborhood
+        aug_rij, aug_uij, aug_r_len, [aug_num_h, aug_Gamma] = compute_augmented_nb(
+            r, u, i, [num_h, Gamma], constants.nb_threshold, constants.bounds
         )
 
         # compute the fields
         grad_kernel = grad_W_spiky(aug_rij, constants.nb_threshold, aug_r_len)
         grad_kernel_reduced = 2 * np.linalg.norm(grad_kernel, axis=1) / aug_r_len
 
+        # since u points outwards and for some reason r points inwards,
+        # the gradient returned by grad_kernel is pointing outwards
+        # so the divergence is correctly computed
         divergence[i - chunk[0]] = constants.V * np.sum(
             np.sum((aug_uij * grad_kernel), axis=1) / aug_num_h
         )
@@ -127,24 +158,17 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, constants):
     new_num_h = np.empty((chunk[1] - chunk[0],))
 
     for i in range(*chunk):
-        rij = r - r[i]
-        # compute the neighborhood
-        r_len = np.linalg.norm(rij, axis=1)
-        # create a neighborhood with and without the current particle
-        inclusive_nb = r_len < constants.nb_threshold
-        nb = inclusive_nb & (r_len > 0)
-
-        # augment the neighborhood at the boundaries
         (
             aug_rij,
             aug_uij,
-            [aug_r_len, aug_num_h, aug_pressure, aug_surface_tension],
-        ) = augment_nb(
+            aug_r_len,
+            [aug_num_h, aug_pressure, aug_surface_tension],
+        ) = compute_augmented_nb(
             r,
-            u - u[i],
+            u,
             i,
-            [r_len, num_h, pressure, surface_tension],
-            nb,
+            [num_h, pressure, surface_tension],
+            constants.nb_threshold,
             constants.bounds,
         )
 
@@ -225,11 +249,6 @@ def step(
     constants,
     pool,
 ):
-    # aug_r, aug_u, [aug_Gamma, aug_num_h] = augment_particles(
-    #     r, u, [Gamma, num_h], constants.bounds, constants.nb_threshold
-    # )
-    # fork_pdb.set_trace()
-
     surface_tension = (
         constants.pure_surface_tension - 293.15 * scipy.constants.R * Gamma
     )
