@@ -9,21 +9,13 @@ import scipy.constants
 def init_numerical_height(chunk, r, u, constants):
     num_h = np.empty((chunk[1] - chunk[0],))
     for i in range(*chunk):
-        # rij = r - r[i]
-        # r_len = np.sqrt(np.sum(rij**2, axis=1))
-        # inclusive_nb = r_len < constants.nb_threshold
-
         aug_rij, _, aug_r_len, _ = compute_augmented_nb(
             r, u, i, [], constants.nb_threshold, constants.bounds
         )
-        # if (aug_rij.shape[0] > rij[inclusive_nb].shape[0]):
-        #     fork_pdb.set_trace()
-        inclusive_aug_rij = np.concatenate([aug_rij, np.array([[0, 0]])])
         inclusive_aug_r_len = np.concatenate([aug_r_len, np.array([0])])
 
         num_h[i - chunk[0]] = constants.V * np.sum(
-            # W_spiky(rij[inclusive_nb], constants.nb_threshold, r_len[inclusive_nb])
-            W_spiky(inclusive_aug_rij, constants.nb_threshold, inclusive_aug_r_len)
+            W_spiky(constants.nb_threshold, inclusive_aug_r_len)
         )
     return (num_h,)
 
@@ -111,8 +103,7 @@ def compute_augmented_nb(r, u, i, arrs_to_augment, nb_threshold, bounds):
         ]
     )
 
-    # the paper sets r to point inwards
-    # and u to point outwards
+    # the paper sets r to point inwards and u to point outwards
     return r[i] - aug_r, aug_u - u[i], aug_r_len, result
 
 
@@ -127,7 +118,8 @@ def update_fields(chunk, r, u, Gamma, num_h, constants):
             r, u, i, [num_h, Gamma], constants.nb_threshold, constants.bounds
         )
 
-        # compute the fields
+        # compute the gradient of the smoothing kernel
+        # possible that this operator needs to take height curvature into account
         grad_kernel = grad_W_spiky(aug_rij, constants.nb_threshold, aug_r_len)
         grad_kernel_reduced = 2 * np.linalg.norm(grad_kernel, axis=1) / aug_r_len
 
@@ -138,6 +130,7 @@ def update_fields(chunk, r, u, Gamma, num_h, constants):
             np.sum((aug_uij * grad_kernel), axis=1) / aug_num_h
         )
 
+        # curvature and Gamma don't depend on the sign of the gradient
         curvature[i - chunk[0]] = constants.V * np.sum(
             (aug_num_h - num_h[i]) / aug_num_h * grad_kernel_reduced
         )
@@ -191,50 +184,31 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, constants):
             )
         )
 
-        # try:
-        #     if aug_rij.shape[0] > rij[nb].shape[0]:
-        #         fork_pdb.set_trace()
-        #     tmp_grad_kernel = grad_W_spiky(rij[nb], constants.nb_threshold, r_len[nb])
-        #     unaug_pf = (
-        #         2
-        #         * constants.V**2
-        #         * np.sum(
-        #             num_h[i]
-        #             * (pressure[i] / num_h[i] ** 2 + pressure[nb] / num_h[nb] ** 2)[
-        #                 :, np.newaxis
-        #             ]
-        #             * tmp_grad_kernel,
-        #             axis=0,
-        #         )
+        # marangoni_force = (
+        #     constants.V**2
+        #     / num_h[i]
+        #     * np.sum(
+        #         ((aug_surface_tension - surface_tension[i]) / aug_num_h)[:, np.newaxis]
+        #         * grad_kernel,
+        #         axis=0,
         #     )
-        # except Exception as e:
-        #     fork_pdb.set_trace()
+        # )
 
-        marangoni_force = (
-            constants.V**2
-            / num_h[i]
-            * np.sum(
-                ((aug_surface_tension - surface_tension[i]) / aug_num_h)[:, np.newaxis]
-                * grad_kernel,
-                axis=0,
-            )
-        )
+        # viscosity_force = (
+        #     constants.V**2
+        #     * constants.mu
+        #     * np.sum((aug_uij) / (aug_num_h)[:, np.newaxis] * grad_kernel_reduced, axis=0)
+        # )
 
-        viscosity_force = (
-            constants.V**2
-            * constants.mu
-            * np.sum((aug_uij) / (aug_num_h)[:, np.newaxis] * grad_kernel_reduced)
-        )
+        # force[i - chunk[0]] = pressure_force + marangoni_force + viscosity_force
         force[i - chunk[0]] = pressure_force
 
         # update numerical height
         # according to the paper this needs to be computed after the positions are updated
         # i.e. with a new neighborhood
-        inclusive_aug_rij = np.concatenate([aug_rij, np.array([[0, 0]])])
-        inclusive_aug_r_len = np.concatenate([aug_r_len, np.array([0])])
+        # concat 0 because this neighborhood needs to include the current point
         new_num_h[i - chunk[0]] = constants.V * np.sum(
-            # W_spline4(r_len[inclusive_nb], constants.nb_threshold)
-            W_spiky(inclusive_aug_rij, constants.nb_threshold, inclusive_aug_r_len)
+            W_spiky(constants.nb_threshold, np.concatenate([aug_r_len, np.array([0])]))
         )
 
     return force, new_num_h

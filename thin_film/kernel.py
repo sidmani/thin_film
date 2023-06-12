@@ -2,7 +2,7 @@ import math
 import numpy as np
 
 
-def W_spiky(r, h, r_len):
+def W_spiky(h, r_len):
     norm_factor = 3 / (2 * h)
     return (
         np.where(r_len < h, 15 / (math.pi * h**6) * (h - r_len) ** 3, 0)
