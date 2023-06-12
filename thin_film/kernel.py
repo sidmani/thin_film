@@ -14,7 +14,6 @@ def grad_W_spiky(r, h, r_len):
     norm_factor = 3 / (2 * h)
     grad = np.where(r_len < h, -45 / (math.pi * h**6) * (h - r_len) ** 2, 0)
 
-    # r points radially inwards, so the gradient points outwards?
     return (grad / r_len)[:, None] * r / norm_factor
 
 

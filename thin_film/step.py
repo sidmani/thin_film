@@ -9,7 +9,7 @@ import scipy.constants
 def init_numerical_height(chunk, r, u, constants):
     num_h = np.empty((chunk[1] - chunk[0],))
     for i in range(*chunk):
-        aug_rij, _, aug_r_len, _ = compute_augmented_nb(
+        _, _, aug_r_len, _ = compute_augmented_nb(
             r, u, i, [], constants.nb_threshold, constants.bounds
         )
         inclusive_aug_r_len = np.concatenate([aug_r_len, np.array([0])])
@@ -103,8 +103,9 @@ def compute_augmented_nb(r, u, i, arrs_to_augment, nb_threshold, bounds):
         ]
     )
 
-    # the paper sets r to point inwards and u to point outwards
-    return r[i] - aug_r, aug_u - u[i], aug_r_len, result
+    # the paper sets r to point radially inwards and u to point outwards
+    # but we're going to set both pointing outwards because it makes more sense
+    return aug_r - r[i], aug_u - u[i], aug_r_len, result
 
 
 def update_fields(chunk, r, u, Gamma, num_h, constants):
@@ -119,18 +120,18 @@ def update_fields(chunk, r, u, Gamma, num_h, constants):
         )
 
         # compute the gradient of the smoothing kernel
-        # possible that this operator needs to take height curvature into account
+        # TODO: possible that this operator needs to take height curvature into account
+        # the gradient returned by grad_kernel points radially inwards, toward r[i]
         grad_kernel = grad_W_spiky(aug_rij, constants.nb_threshold, aug_r_len)
         grad_kernel_reduced = 2 * np.linalg.norm(grad_kernel, axis=1) / aug_r_len
 
-        # since u points outwards and for some reason r points inwards,
-        # the gradient returned by grad_kernel is pointing outwards
-        # so the divergence is correctly computed
-        divergence[i - chunk[0]] = constants.V * np.sum(
+        # uij is the velocity in the outwards radial direction
+        # so the dot product will be negative if uij points outward
+        # so the divergence needs an extra negative sign
+        divergence[i - chunk[0]] = -constants.V * np.sum(
             np.sum((aug_uij * grad_kernel), axis=1) / aug_num_h
         )
 
-        # curvature and Gamma don't depend on the sign of the gradient
         curvature[i - chunk[0]] = constants.V * np.sum(
             (aug_num_h - num_h[i]) / aug_num_h * grad_kernel_reduced
         )
@@ -237,10 +238,10 @@ def step(
     pressure = (
         constants.alpha_h * (num_h / constants.h_0 - 1)
         + constants.alpha_k * surface_tension * curvature
-        + constants.alpha_d * divergence
+        - constants.alpha_d * divergence
     )
 
-    # TODO: seems like there could be a sign issue here
+    # if divergence is positive, the height decreases
     adv_h += -adv_h * divergence * constants.delta_t
 
     force, new_num_h = chunk_starmap(
