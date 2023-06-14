@@ -225,7 +225,7 @@ def step(
     pool,
 ):
     surface_tension = (
-        constants.pure_surface_tension - 293.15 * scipy.constants.R * Gamma
+        72e-3 - 293.15 * scipy.constants.R * Gamma
     )
 
     divergence, curvature, new_Gamma = chunk_starmap(

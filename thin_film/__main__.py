@@ -9,6 +9,7 @@ from matplotlib.animation import FuncAnimation
 from multiprocessing import Pool, cpu_count
 from .step import init_values, step
 import pprint
+import argparse
 
 
 @dataclass
@@ -75,24 +76,72 @@ def run(steps, constants, workers):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(prog="thinfilm", description="Thin film simulator")
+
+    subparsers = parser.add_subparsers()
+    parser_simulate = subparsers.add_parser("simulate", help="run the simulator")
+
+    parser_simulate.add_argument(
+        "--workers",
+        type=int,
+        help="the number of processes used concurrently. defaults to cpu_count - 1",
+        default=cpu_count() - 1,
+    )
+    parser_simulate.add_argument(
+        "--timesteps", type=int, help="the number of timesteps to simulate", default=10
+    )
+
+    parser_simulate.add_argument(
+        "--delta-t", type=int, help="the time interval between frames", default=1 / 30
+    )
+
+    parser_simulate.add_argument(
+        "--bounds",
+        type=float,
+        nargs=4,
+        help="the bottom-left and top-right coordinates of the boundary rectangle in the format x0 y0 x1 y1",
+        default=[0, 0, 1, 1],
+    )
+
+    parser_simulate.add_argument(
+        "--particle-count",
+        type=int,
+        help="the number of particles in the simulation",
+        default=10000,
+    )
+    parser_simulate.add_argument(
+        "--particle-volume", type=float, help="the volume of each particle in m^3"
+    )
+    parser_simulate.add_argument(
+        "--particle-mass", type=float, help="the mass of each particle in kg"
+    )
+
+    parser_simulate.add_argument(
+        "--particle-nb-r",
+        type=float,
+        help="the radius of the neighborhood around each particle",
+        default=0.1,
+    )
+
+    args = parser.parse_args()
+
     run(
-        30,
+        args.timesteps,
         Parameters(
-            particle_count=10000,
+            particle_count=args.particle_count,
             V=2e-11,
-            m=2e-11,
-            surfactant_diffusion_coefficient=1e-6,
-            pure_surface_tension=72e-3,  # surface tension of pure water at room temp = 72 mN/m
-            initial_surfactant_concentration=1e-3,
-            nb_threshold=0.1,
-            delta_t=1 / 60,  # 60 fps
-            alpha_d=1e-3,
-            alpha_h=1e-3,
-            alpha_k=1e-3,
+            m=2e-8,
+            # diffusion coeffcients in liquids are 1e-9 to 1e-10
+            surfactant_diffusion_coefficient=1e-9,
+            initial_surfactant_concentration=1e-6,
+            nb_threshold=args.particle_nb_r,
+            delta_t=args.delta_t,
+            alpha_d=1e-4,
+            alpha_h=1e-4,
+            alpha_k=1e-4,
             h_0=250e-9,
-            mu=1e-7,
-            bounds=(0, 0, 1, 1),
+            mu=1e-5,
+            bounds=tuple(args.bounds),
         ),
-        workers=cpu_count() - 1,
-        # workers=1,
+        workers=args.workers,
     )

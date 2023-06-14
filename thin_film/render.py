@@ -7,12 +7,14 @@ from .color_system import cs_srgb, cmf
 # because we're processing the frames all at once. makes more sense to chunk them
 # into manageable pieces since the pixels are independent
 
+
 # generate the sampling coordinates once
 def generate_sampling_coords(res, bounds):
-    px, py = np.mgrid[0: res[0]: 1, 0: res[1]: 1]
+    px, py = np.mgrid[0 : res[0] : 1, 0 : res[1] : 1]
     px = (bounds[2] - bounds[0]) * px / res[0] + bounds[0]
     py = (bounds[3] - bounds[1]) * py / res[1] + bounds[1]
     return np.c_[px.ravel(), py.ravel()]
+
 
 def resample_heights(r, adv_h, res, sampling_coords):
     # sample the grid
