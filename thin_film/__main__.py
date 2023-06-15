@@ -26,7 +26,6 @@ class Parameters:
     alpha_k: float
     alpha_d: float
     delta_t: float
-    h_0: float
     V: float  # the half-volume of each particle
     m: float  # the particle mass
     mu: float
@@ -145,13 +144,12 @@ def main():
             surfactant_diffusion_coefficient=1e-9,
             initial_surfactant_concentration=1e-6,
             nb_threshold=args.particle_nb_r,
-            kernel_h=1.1 * args.particle_nb_r,
+            kernel_h=1.01 * args.particle_nb_r,
             delta_t=args.delta_t,
-            alpha_d=1e-4,
-            alpha_h=1e-4,
-            alpha_k=1e-4,
-            h_0=250e-9,
-            mu=1e-5,
+            alpha_h=1e-1,
+            alpha_k=1e-1,
+            alpha_d=1e-1,
+            mu=1e-3,
             bounds=tuple(args.bounds),
         ),
         workers=args.workers,

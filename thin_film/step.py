@@ -58,10 +58,7 @@ def compute_augmented_nb(r, u, i, arrs_to_augment, nb_threshold, bounds):
 
     # find the points whose reflections are over the boundaries
     augment_horizontal = (r_nb_horizontal < bounds[0]) | (r_nb_horizontal > bounds[2])
-    # exclude augment_horizontal from augment_vertical to avoid double-counting
-    augment_vertical = (
-        (r_nb_vertical < bounds[1]) | (r_nb_vertical > bounds[3])
-    ) & ~augment_horizontal
+    augment_vertical = (r_nb_vertical < bounds[1]) | (r_nb_vertical > bounds[3])
 
     # TODO: can short circuit if no augmentation needed
     result = []
@@ -232,8 +229,18 @@ def step(
         constant_args=[r, u, Gamma, num_h, constants],
     )
 
+    # compute the rest height of the thin film if it were uniformly distributed
+    h_0 = (
+        constants.V
+        * constants.particle_count
+        / (
+            (constants.bounds[2] - constants.bounds[0])
+            * (constants.bounds[3] - constants.bounds[1])
+        )
+    )
+
     pressure = (
-        constants.alpha_h * (num_h / constants.h_0 - 1)
+        constants.alpha_h * (num_h / h_0 - 1)
         + constants.alpha_k * surface_tension * curvature
         - constants.alpha_d * divergence
     )
