@@ -82,6 +82,6 @@ def render_frame(r, adv_h, res, bounds):
     del all_wavelengths
 
     rgb = spec_to_rgb(intensity, cs_srgb.T)
-    del intensity 
+    del intensity
     rgb = np.reshape(rgb, (*res, 3))
     return rgb

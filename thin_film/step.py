@@ -15,7 +15,7 @@ def init_numerical_height(chunk, r, u, constants):
         inclusive_aug_r_len = np.concatenate([aug_r_len, np.array([0])])
 
         num_h[i - chunk[0]] = constants.V * np.sum(
-            W_spiky(constants.nb_threshold, inclusive_aug_r_len)
+            W_spiky(constants.kernel_h, inclusive_aug_r_len)
         )
     return (num_h,)
 
@@ -122,7 +122,7 @@ def update_fields(chunk, r, u, Gamma, num_h, constants):
         # compute the gradient of the smoothing kernel
         # TODO: possible that this operator needs to take height curvature into account
         # the gradient returned by grad_kernel points radially inwards, toward r[i]
-        grad_kernel = grad_W_spiky(aug_rij, constants.nb_threshold, aug_r_len)
+        grad_kernel = grad_W_spiky(aug_rij, constants.kernel_h, aug_r_len)
         grad_kernel_reduced = 2 * np.linalg.norm(grad_kernel, axis=1) / aug_r_len
 
         # uij is the velocity in the outwards radial direction
@@ -166,7 +166,7 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, constants):
             constants.bounds,
         )
 
-        grad_kernel = grad_W_spiky(aug_rij, constants.nb_threshold, aug_r_len)
+        grad_kernel = grad_W_spiky(aug_rij, constants.kernel_h, aug_r_len)
         grad_kernel_reduced = (
             2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / aug_r_len
         )[:, None]
@@ -209,7 +209,7 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, constants):
         # i.e. with a new neighborhood
         # concat 0 because this neighborhood needs to include the current point
         new_num_h[i - chunk[0]] = constants.V * np.sum(
-            W_spiky(constants.nb_threshold, np.concatenate([aug_r_len, np.array([0])]))
+            W_spiky(constants.kernel_h, np.concatenate([aug_r_len, np.array([0])]))
         )
 
     return force, new_num_h
@@ -224,10 +224,7 @@ def step(
     constants,
     pool,
 ):
-    surface_tension = (
-        72e-3 - 293.15 * scipy.constants.R * Gamma
-    )
-
+    surface_tension = 72e-3 - 293.15 * scipy.constants.R * Gamma
     divergence, curvature, new_Gamma = chunk_starmap(
         total_count=constants.particle_count,
         pool=pool,

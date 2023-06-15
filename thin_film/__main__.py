@@ -1,8 +1,7 @@
 from dataclasses import dataclass
-import scipy.constants
 from .fork_pdb import fork_pdb
 import time
-from .render import render_frame, generate_sampling_coords
+from .render import render_frame, generate_sampling_coords, resample_heights
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -18,8 +17,8 @@ class Parameters:
     nb_threshold: float  # the radius to include particles as neighbors
     bounds: tuple  # the rectangular boundary of the simulation in the format (x0, y0, x1, y1)
     initial_surfactant_concentration: float
-    pure_surface_tension: float  # the untainted surface tension (e.g. of pure water)
     surfactant_diffusion_coefficient: float  # the coefficient in the convection-diffusion equation for the surfactant
+    kernel_h: float
     alpha_h: float
     alpha_k: float
     alpha_d: float
@@ -131,10 +130,11 @@ if __name__ == "__main__":
             particle_count=args.particle_count,
             V=2e-11,
             m=2e-8,
-            # diffusion coeffcients in liquids are 1e-9 to 1e-10
+            # diffusion coefficients in liquids are 1e-9 to 1e-10
             surfactant_diffusion_coefficient=1e-9,
             initial_surfactant_concentration=1e-6,
             nb_threshold=args.particle_nb_r,
+            kernel_h=1.1 * args.particle_nb_r,
             delta_t=args.delta_t,
             alpha_d=1e-4,
             alpha_h=1e-4,
