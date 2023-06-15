@@ -24,8 +24,7 @@ def resample_heights(r, adv_h, res, sampling_coords):
     )
 
     # reshape into a grid
-    # TODO: check that this doesn't flip axes
-    return interp_h.reshape(res)
+    return interp_h.reshape(res, order="F")
 
 
 # compute wavelength-dependent amplitudes

@@ -75,6 +75,7 @@ def run(steps, constants, workers):
         im1.set_data(f[0])
 
     im1 = plt.imshow(frames[0][0])
+    plt.gca().invert_yaxis()
     ani = FuncAnimation(
         plt.gcf(),
         func=update,
