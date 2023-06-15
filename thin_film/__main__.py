@@ -2,13 +2,16 @@ from dataclasses import dataclass
 from .fork_pdb import fork_pdb
 import time
 from .render import render_frame, generate_sampling_coords, resample_heights
-from tqdm import tqdm
+import signal
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from multiprocessing import Pool, cpu_count
 from .step import init_values, step
 import pprint
 import argparse
+import sys
+import os
+from rich.progress import Progress
 
 
 @dataclass
@@ -35,46 +38,54 @@ def run(steps, constants, workers):
     res = (512, 512)
 
     sampling_coords = generate_sampling_coords(res, constants.bounds)
-
     frames = []
-    with Pool(workers) as pool:
-        print(f"Using {workers} workers on {cpu_count()} CPUs.")
-        start_time = time.time()
-        print("Initializing fields...", end="", flush=True)
-        r, u, Gamma, num_h, adv_h = init_values(constants, pool)
-        print(f"done in {(time.time() - start_time):.2f}s.")
-        print("Entering simulation loop.")
-        frame_pbar = tqdm(total=steps, position=1, leave=True, desc="Render")
 
-        def submit_frame(frame, idx):
-            frames.append((frame, idx))
-            frame_pbar.update(n=1)
+    with Progress() as progress:
+        with Pool(
+            workers, initializer=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN)
+        ) as pool:
+            print(f"Using {workers} workers on {cpu_count()} CPUs.")
+            start_time = time.time()
+            print("Initializing fields...", end="", flush=True)
+            r, u, Gamma, num_h, adv_h = init_values(constants, pool)
+            print(f"done in {(time.time() - start_time):.2f}s.")
+            sim_task = progress.add_task("[red]Simulate", total=steps)
+            render_task = progress.add_task("[green]Render", total=steps)
 
-        for i in tqdm(range(steps), position=0, leave=True, desc="Simulate"):
-            r, u, Gamma, num_h, adv_h = step(r, u, Gamma, num_h, adv_h, constants, pool)
-            pool.apply_async(
-                render_frame,
-                [r, adv_h, res, sampling_coords],
-                callback=lambda frame: submit_frame(frame, i),
-            )
+            def submit_frame(frame, idx):
+                frames.append((frame, idx))
+                progress.update(render_task, advance=1)
 
-        pool.close()
-        pool.join()
+            for i in range(steps):
+                r, u, Gamma, num_h, adv_h = step(
+                    r, u, Gamma, num_h, adv_h, constants, pool
+                )
+                pool.apply_async(
+                    render_frame,
+                    [r, adv_h, res, sampling_coords],
+                    callback=lambda frame: submit_frame(frame, i),
+                )
+                progress.update(sim_task, advance=1)
+
+            pool.close()
+            pool.join()
 
     frames.sort(key=lambda x: x[1])
-    frames = list(map(lambda x: x[0], frames))
 
-    im1 = plt.imshow(frames[0])
+    def update(f):
+        im1.set_data(f[0])
+
+    im1 = plt.imshow(frames[0][0])
     ani = FuncAnimation(
         plt.gcf(),
-        func=lambda f: im1.set_data(f),
+        func=update,
         frames=frames,
         interval=30,
     )
     plt.show()
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(prog="thinfilm", description="Thin film simulator")
 
     subparsers = parser.add_subparsers()
@@ -145,3 +156,14 @@ if __name__ == "__main__":
         ),
         workers=args.workers,
     )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nProcess interrupted. Shutting down...")
+        try:
+            sys.exit(130)
+        except SystemExit:
+            os._exit(130)
