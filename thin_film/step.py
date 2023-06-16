@@ -212,6 +212,26 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, constants):
     return force, new_num_h
 
 
+# enforce boundaries by reflecting particles outside the bounds
+# this simply resets particles to the edge and will misalign
+# waves and other coordinated motion (but as delta_t -> 0, this becomes a non-issue)
+def boundary_reflect(r, u, bounds):
+    exit_left = r[:, 0] < bounds[0]
+    exit_right = r[:, 0] > bounds[2]
+    exit_bottom = r[:, 1] < bounds[1]
+    exit_top = r[:, 1] > bounds[3]
+
+    r[:, 0] = np.where(exit_left, bounds[0], r[:, 0])
+    r[:, 0] = np.where(exit_right, bounds[2], r[:, 0])
+    r[:, 1] = np.where(exit_bottom, bounds[1], r[:, 1])
+    r[:, 1] = np.where(exit_top, bounds[1], r[:, 1])
+
+    u[:, 0] *= np.where(exit_left, -1, 1)
+    u[:, 0] *= np.where(exit_right, -1, 1)
+    u[:, 1] *= np.where(exit_bottom, 1, -1)
+    u[:, 1] *= np.where(exit_top, 1, -1)
+
+
 def step(
     r,
     u,
@@ -230,18 +250,11 @@ def step(
     )
 
     # compute the rest height of the thin film if it were uniformly distributed
-    h_0 = (
-        constants.V
-        * constants.particle_count
-        / (
-            (constants.bounds[2] - constants.bounds[0])
-            * (constants.bounds[3] - constants.bounds[1])
-        )
-    )
-
     pressure = (
-        constants.alpha_h * (num_h / h_0 - 1)
-        + constants.alpha_k * surface_tension * curvature
+        constants.alpha_h * (num_h / constants.rest_height - 1)
+        # why is it multiplied by the curvature?
+        # + constants.alpha_k * surface_tension * curvature
+        # is this sign correct?
         - constants.alpha_d * divergence
     )
 
@@ -256,9 +269,10 @@ def step(
     )
 
     # TODO: updating by half should improve stability
-    # 5. update velocity
+    # update velocity and position
     u += constants.delta_t / constants.m * force
-    # 6. update position
     r += u * constants.delta_t
+
+    boundary_reflect(r, u, constants.bounds)
 
     return r, u, new_Gamma, new_num_h, adv_h
