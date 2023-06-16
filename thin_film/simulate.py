@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from .step import init_values, step
 from rich.progress import Progress
-from multiprocessing import Pool, cpu_count
+from rich import print
+from multiprocessing import Pool
 
 
 @dataclass
@@ -17,7 +18,7 @@ class Parameters:
     initial_surfactant_concentration: float
     surfactant_diffusion_coefficient: float  # the coefficient in the convection-diffusion equation for the surfactant
     kernel_h: float
-    alpha_h: float
+    stiffness: float
     alpha_k: float
     alpha_d: float
     delta_t: float

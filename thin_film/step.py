@@ -241,6 +241,7 @@ def step(
     constants,
     pool,
 ):
+    # the surface tension is that of water (72e-3 N/m) minus the change caused by the surfactant
     surface_tension = 72e-3 - 293.15 * scipy.constants.R * Gamma
     divergence, curvature, new_Gamma = chunk_starmap(
         total_count=constants.particle_count,
@@ -251,9 +252,9 @@ def step(
 
     # compute the rest height of the thin film if it were uniformly distributed
     pressure = (
-        constants.alpha_h * (num_h / constants.rest_height - 1)
+        constants.stiffness * (num_h / constants.rest_height - 1)
         # why is it multiplied by the curvature?
-        # + constants.alpha_k * surface_tension * curvature
+        + constants.alpha_k * surface_tension * curvature
         # is this sign correct?
         - constants.alpha_d * divergence
     )

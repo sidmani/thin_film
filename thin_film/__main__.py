@@ -1,11 +1,10 @@
-from .fork_pdb import fork_pdb
-
-from multiprocessing import cpu_count
 import argparse
 import sys
 import os
+from multiprocessing import cpu_count
 from rich import print
 from .simulate import simulate, Parameters
+from .fork_pdb import fork_pdb
 
 
 def main():
@@ -25,7 +24,7 @@ def main():
     )
 
     parser_simulate.add_argument(
-        "--delta-t", type=int, help="the time interval between frames", default=1 / 30
+        "--delta-t", type=float, help="the time interval between frames", default=1 / 30
     )
 
     parser_simulate.add_argument(
@@ -73,9 +72,9 @@ def main():
             nb_threshold=args.particle_nb_r,
             kernel_h=1.01 * args.particle_nb_r,
             delta_t=args.delta_t,
-            alpha_h=1e-1,
-            alpha_k=1e-1,
-            alpha_d=1e-1,
+            stiffness=1,
+            alpha_k=1,
+            alpha_d=1,
             mu=1e-3,
             bounds=tuple(args.bounds),
         ),
