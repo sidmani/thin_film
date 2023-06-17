@@ -1,7 +1,7 @@
 import numpy as np
-import pdb
 import scipy
 from .color_system import cs_srgb, cmf
+from .fork_pdb import fork_pdb
 
 # TODO: memory usage here is pretty high
 # because we're processing the frames all at once. makes more sense to chunk them
@@ -55,14 +55,14 @@ def spec_to_rgb(spec, T):
     # sum [batch, 81, 3] over axis 1 -> XYZ is [batch, 3]
     xyz = np.sum(spec[:, :, np.newaxis] * cmf[np.newaxis, :, :], axis=1)
     # den [batch, 1]
-    den = np.sum(xyz, axis=1, keepdims=True)
-    xyz = xyz / den
-    del den
+    xyz = xyz / xyz.sum(axis=1, keepdims=True).clip(min=0)
 
     rgb = np.einsum("ij,kj->ki", T, xyz)
-    # rgb = T @ xyz.T
+    min_v = rgb.min()
+    if min_v < 0:
+        rgb -= min_v
     del xyz
-    rgb = np.clip(rgb, 0, None)
+    rgb /= np.max(rgb)
 
     # TODO: normalize
     return rgb

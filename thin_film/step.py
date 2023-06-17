@@ -12,37 +12,31 @@ def init_numerical_height(chunk, r, u, constants):
         _, _, aug_r_len, _ = compute_augmented_nb(
             r, u, i, [], constants.nb_threshold, constants.bounds
         )
-        inclusive_aug_r_len = np.concatenate([aug_r_len, np.array([0])])
 
         num_h[i - chunk[0]] = constants.V * np.sum(
-            W_spiky(constants.kernel_h, inclusive_aug_r_len)
+            W_spiky(constants.kernel_h, np.concatenate([aug_r_len, np.array([0])]))
         )
     return (num_h,)
 
 
-def init_values(constants, pool):
-    bounds = constants.bounds
-    r = np.random.rand(constants.particle_count, 2) * np.array(
-        [bounds[2] - bounds[0], bounds[3] - bounds[1]]
-    ) + np.array([bounds[0], bounds[1]])
+def init_values(constants):
+    r_sqrt = np.sqrt(constants.particle_count)
+    r = generate_sampling_coords((r_sqrt, r_sqrt), constants.bounds)
+    # r = np.random.rand(constants.particle_count, 2) * np.array(
+    #     [bounds[2] - bounds[0], bounds[3] - bounds[1]]
+    # ) + np.array([bounds[0], bounds[1]])
+
     u = np.zeros_like(r)
 
     # surfactant concentration (Γ)
     Gamma = (
-        np.ones((constants.particle_count,))
+        np.random.rand(constants.particle_count)
+        # * 0.001
         * constants.initial_surfactant_concentration
+        # + constants.initial_surfactant_concentration * 0.9995
     )
 
-    # numerical and advected height
-    num_h = chunk_starmap(
-        total_count=constants.particle_count,
-        pool=pool,
-        func=init_numerical_height,
-        constant_args=[r, u, constants],
-    )[0]
-    adv_h = num_h.copy()
-
-    return r, u, Gamma, num_h, adv_h
+    return r, u, Gamma
 
 
 def compute_augmented_nb(r, u, i, arrs_to_augment, nb_threshold, bounds):
@@ -133,6 +127,7 @@ def update_fields(chunk, r, u, Gamma, num_h, constants):
             (aug_num_h - num_h[i]) / aug_num_h * grad_kernel_reduced
         )
 
+        # because of the product here, if Gamma is uniform to begin with it never changes
         new_Gamma[i - chunk[0]] = Gamma[i] + (
             constants.surfactant_diffusion_coefficient
             * constants.delta_t
@@ -168,7 +163,7 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, constants):
             2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / aug_r_len
         )[:, None]
 
-        # TODO: vorticity confinement force
+        # TODO: vorticity confinement force and capillary force
         pressure_force = (
             2
             * constants.V**2
@@ -201,15 +196,9 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, constants):
         # force[i - chunk[0]] = pressure_force + marangoni_force + viscosity_force
         force[i - chunk[0]] = pressure_force
 
-        # update numerical height
-        # according to the paper this needs to be computed after the positions are updated
-        # i.e. with a new neighborhood
-        # concat 0 because this neighborhood needs to include the current point
-        new_num_h[i - chunk[0]] = constants.V * np.sum(
-            W_spiky(constants.kernel_h, np.concatenate([aug_r_len, np.array([0])]))
-        )
+        force[i - chunk[0]] = viscosity_force + pressure_force
 
-    return force, new_num_h
+    return force, viscosity_f_track, pressure_f_track
 
 
 # enforce boundaries by reflecting particles outside the bounds
@@ -243,6 +232,16 @@ def step(
 ):
     # the surface tension is that of water (72e-3 N/m) minus the change caused by the surfactant
     surface_tension = 72e-3 - 293.15 * scipy.constants.R * Gamma
+
+    num_h = chunk_starmap(
+        total_count=constants.particle_count,
+        pool=pool,
+        func=init_numerical_height,
+        constant_args=[r, u, constants],
+    )[0]
+    if adv_h is None:
+        adv_h = num_h.copy()
+
     divergence, curvature, new_Gamma = chunk_starmap(
         total_count=constants.particle_count,
         pool=pool,
@@ -276,4 +275,4 @@ def step(
 
     boundary_reflect(r, u, constants.bounds)
 
-    return r, u, new_Gamma, new_num_h, adv_h
+    return r, u, new_Gamma, adv_h

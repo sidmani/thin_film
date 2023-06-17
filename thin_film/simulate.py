@@ -58,7 +58,10 @@ def simulate(steps, constants, workers):
     ) as pool, Progress() as progress:
         start_time = time.time()
         print("Initializing fields...", end="", flush=True)
-        r, u, Gamma, num_h, adv_h = init_values(constants, pool)
+
+        r, u, Gamma = init_values(constants)
+        adv_h = None
+
         print(f"done in {(time.time() - start_time):.2f}s.")
         sim_task = progress.add_task("[red]Simulate", total=steps)
         render_task = progress.add_task("[green]Render", total=steps)
@@ -68,7 +71,7 @@ def simulate(steps, constants, workers):
             progress.update(render_task, advance=1)
 
         for i in range(steps):
-            r, u, Gamma, num_h, adv_h = step(r, u, Gamma, num_h, adv_h, constants, pool)
+            r, u, Gamma, adv_h = step(r, u, Gamma, adv_h, constants, pool)
             pool.apply_async(
                 render_frame,
                 [r, adv_h, res, sampling_coords],
