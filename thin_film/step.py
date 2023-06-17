@@ -6,17 +6,23 @@ from .fork_pdb import fork_pdb
 from .util import chunk_starmap
 import scipy.constants
 
-
-def init_numerical_height(chunk, r, kdtree, constants):
+def init_numerical_height(chunk, r, kdtree, constants, inner_chunk_size=500):
     num_h = np.empty((chunk[1] - chunk[0],))
-    for i in range(*chunk):
-        nb_idx = kdtree.query_radius(r[i].reshape(1, -1), constants.nb_threshold)
-        nb = r[nb_idx[0]]
 
-        r_len = np.linalg.norm(nb - r[i], axis=1)
-        num_h[i - chunk[0]] = constants.V * np.sum(
-            W_spiky(constants.kernel_h, np.concatenate([r_len, np.array([0])]))
+    # TODO: could do this without inner for loop by padding nb_idx
+    # it would use somewhat more memory - benchmarking needed
+    for i in range(chunk[0], chunk[1], inner_chunk_size):
+        nb_idx = kdtree.query_radius(
+            r[i : i + inner_chunk_size], constants.nb_threshold
         )
+
+        for j in range(i, min(i + inner_chunk_size, chunk[1])):
+            nb = r[nb_idx[j - i]]
+
+            r_len = np.linalg.norm(nb - r[j], axis=1)
+            num_h[j - chunk[0]] = constants.V * np.sum(
+                W_spiky(constants.kernel_h, np.concatenate([r_len, np.array([0])]))
+            )
     return (num_h,)
 
 
@@ -106,11 +112,10 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
     curvature = np.empty_like(divergence)
     new_Gamma = np.empty_like(divergence)
 
-    # TODO: there is a far faster way to construct neighborhoods
     for i in range(*chunk):
         nb_idx = kdtree.query_radius(r[i].reshape(1, -1), constants.nb_threshold)[0]
-        curr_idx = np.where(nb_idx == i)
-        nb_idx = np.delete(nb_idx, curr_idx)
+        # delete the current point from the neighborhood
+        nb_idx = np.delete(nb_idx, np.where(nb_idx == i))
 
         rij = r[nb_idx] - r[i]
         r_len = np.linalg.norm(rij, axis=1)
@@ -119,11 +124,6 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
 
         if r_len.min() == 0:
             raise Exception("Multiple particles found at the same point!")
-
-        # construct the augmented neighborhood
-        # aug_rij, aug_uij, aug_r_len, [aug_num_h, aug_Gamma] = compute_augmented_nb(
-        #     r, u, i, [num_h, Gamma], constants.nb_threshold, constants.bounds
-        # )
 
         # compute the gradient of the smoothing kernel
         # TODO: possible that this operator needs to take height curvature into account
@@ -162,8 +162,7 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, kdtree, consta
 
     for i in range(*chunk):
         nb_idx = kdtree.query_radius(r[i].reshape(1, -1), constants.nb_threshold)[0]
-        curr_idx = np.where(nb_idx == i)
-        nb_idx = np.delete(nb_idx, curr_idx)
+        nb_idx = np.delete(nb_idx, np.where(nb_idx == i))
 
         rij = r[nb_idx] - r[i]
         r_len = np.linalg.norm(rij, axis=1)
@@ -172,20 +171,6 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, kdtree, consta
 
         if r_len.min() == 0:
             raise Exception("Multiple particles found at the same point!")
-
-        # (
-        #     aug_rij,
-        #     aug_uij,
-        #     aug_r_len,
-        #     [aug_num_h, aug_pressure, aug_surface_tension],
-        # ) = compute_augmented_nb(
-        #     r,
-        #     u,
-        #     i,
-        #     [num_h, pressure, surface_tension],
-        #     constants.nb_threshold,
-        #     constants.bounds,
-        # )
 
         grad_kernel = grad_W_spiky(rij, constants.kernel_h, r_len)
         grad_kernel_reduced = (2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / r_len)[
@@ -245,10 +230,10 @@ def boundary_reflect(r, u, bounds):
     exit_bottom = r[:, 1] < bounds[1]
     exit_top = r[:, 1] > bounds[3]
 
-    r[:, 0] = np.where(exit_left, bounds[0], r[:, 0])
-    r[:, 0] = np.where(exit_right, bounds[2], r[:, 0])
-    r[:, 1] = np.where(exit_bottom, bounds[1], r[:, 1])
-    r[:, 1] = np.where(exit_top, bounds[1], r[:, 1])
+    r[:, 0] = np.where(exit_left, bounds[0] - r[:, 0], r[:, 0])
+    r[:, 0] = np.where(exit_right, 2 * bounds[2] - r[:, 0], r[:, 0])
+    r[:, 1] = np.where(exit_bottom, bounds[1] - r[:, 1], r[:, 1])
+    r[:, 1] = np.where(exit_top, 2 * bounds[3] - r[:, 1], r[:, 1])
 
     u[:, 0] *= np.where(exit_left, -1, 1)
     u[:, 0] *= np.where(exit_right, -1, 1)

@@ -15,3 +15,14 @@ class ForkedPdb(pdb.Pdb):
             sys.stdin = _stdin
 
 fork_pdb = ForkedPdb()
+stdin_lock = None
+def init_fork_pdb(_stdin_lock):
+    global stdin_lock
+    stdin_lock = _stdin_lock
+
+def set_trace():
+    global stdin_lock
+    stdin_lock.acquire()
+    import os
+    print(f"lock acquired: process {os.getpid()}")
+    fork_pdb.set_trace()
