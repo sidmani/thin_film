@@ -1,7 +1,7 @@
 import math
 import numpy as np
 
-
+# Since this is a 2D formulation, the kernel has dimensions of 1/area
 def W_spiky(h, r_len):
     norm_factor = 3 / (2 * h)
     return (

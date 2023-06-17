@@ -5,7 +5,6 @@ from .util import chunk_starmap
 import scipy.constants
 
 
-# the augmentation causes weird patterns which makes me think it's not working
 def init_numerical_height(chunk, r, u, constants):
     num_h = np.empty((chunk[1] - chunk[0],))
     for i in range(*chunk):
@@ -20,6 +19,7 @@ def init_numerical_height(chunk, r, u, constants):
 
 
 def init_values(constants):
+    bounds = constants.bounds
     r_sqrt = np.sqrt(constants.particle_count)
     r = generate_sampling_coords((r_sqrt, r_sqrt), constants.bounds)
     # r = np.random.rand(constants.particle_count, 2) * np.array(
@@ -104,6 +104,7 @@ def update_fields(chunk, r, u, Gamma, num_h, constants):
     curvature = np.empty_like(divergence)
     new_Gamma = np.empty_like(divergence)
 
+    # TODO: there is a far faster way to construct neighborhoods
     for i in range(*chunk):
         # construct the augmented neighborhood
         aug_rij, aug_uij, aug_r_len, [aug_num_h, aug_Gamma] = compute_augmented_nb(
@@ -141,7 +142,6 @@ def update_fields(chunk, r, u, Gamma, num_h, constants):
 
 def compute_forces(chunk, r, u, num_h, pressure, surface_tension, constants):
     force = np.zeros((chunk[1] - chunk[0], 2))
-    new_num_h = np.empty((chunk[1] - chunk[0],))
 
     for i in range(*chunk):
         (
@@ -162,6 +162,12 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, constants):
         grad_kernel_reduced = (
             2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / aug_r_len
         )[:, None]
+
+        viscosity_force = (
+            constants.V**2
+            * constants.mu
+            * np.sum(aug_uij / aug_num_h[:, np.newaxis] * grad_kernel_reduced, axis=0)
+        )
 
         # TODO: vorticity confinement force and capillary force
         pressure_force = (
@@ -198,7 +204,7 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, constants):
 
         force[i - chunk[0]] = viscosity_force + pressure_force
 
-    return force, viscosity_f_track, pressure_f_track
+    return (force,)
 
 
 # enforce boundaries by reflecting particles outside the bounds
@@ -225,7 +231,6 @@ def step(
     r,
     u,
     Gamma,
-    num_h,
     adv_h,
     constants,
     pool,
@@ -233,12 +238,13 @@ def step(
     # the surface tension is that of water (72e-3 N/m) minus the change caused by the surfactant
     surface_tension = 72e-3 - 293.15 * scipy.constants.R * Gamma
 
-    num_h = chunk_starmap(
+    (num_h,) = chunk_starmap(
         total_count=constants.particle_count,
         pool=pool,
         func=init_numerical_height,
         constant_args=[r, u, constants],
-    )[0]
+    )
+
     if adv_h is None:
         adv_h = num_h.copy()
 
@@ -249,7 +255,6 @@ def step(
         constant_args=[r, u, Gamma, num_h, constants],
     )
 
-    # compute the rest height of the thin film if it were uniformly distributed
     pressure = (
         constants.stiffness * (num_h / constants.rest_height - 1)
         # why is it multiplied by the curvature?
@@ -261,7 +266,7 @@ def step(
     # if divergence is positive, the height decreases
     adv_h += -adv_h * divergence * constants.delta_t
 
-    force, new_num_h = chunk_starmap(
+    (force,) = chunk_starmap(
         total_count=constants.particle_count,
         pool=pool,
         func=compute_forces,

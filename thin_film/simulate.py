@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import time
 from .render import render_frame, generate_sampling_coords, resample_heights
 import signal
 import matplotlib.pyplot as plt
@@ -56,13 +55,9 @@ def simulate(steps, constants, workers):
     with Pool(
         workers, initializer=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN)
     ) as pool, Progress() as progress:
-        start_time = time.time()
-        print("Initializing fields...", end="", flush=True)
-
         r, u, Gamma = init_values(constants)
         adv_h = None
-
-        print(f"done in {(time.time() - start_time):.2f}s.")
+        print("Launching simulation.")
         sim_task = progress.add_task("[red]Simulate", total=steps)
         render_task = progress.add_task("[green]Render", total=steps)
 
