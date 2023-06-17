@@ -54,7 +54,7 @@ def simulate(steps, constants, workers):
 
     with Pool(
         workers, initializer=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN)
-    ) as pool, Progress() as progress:
+    ) as pool, Progress(auto_refresh=False) as progress:
         r, u, Gamma = init_values(constants)
         adv_h = None
         print("Launching simulation.")
@@ -64,6 +64,7 @@ def simulate(steps, constants, workers):
         def submit_frame(frame, idx):
             frames.append((frame, idx))
             progress.update(render_task, advance=1)
+            progress.refresh()
 
         for i in range(steps):
             r, u, Gamma, adv_h = step(r, u, Gamma, adv_h, constants, pool)
@@ -73,6 +74,7 @@ def simulate(steps, constants, workers):
                 callback=lambda frame: submit_frame(frame, i),
             )
             progress.update(sim_task, advance=1)
+            progress.refresh()
 
         pool.close()
         pool.join()

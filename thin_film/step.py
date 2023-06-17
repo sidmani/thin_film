@@ -1,19 +1,21 @@
 import numpy as np
+import scipy.constants
+from sklearn.neighbors import KDTree
 from .kernel import grad_W_spiky, W_spiky
 from .fork_pdb import fork_pdb
 from .util import chunk_starmap
 import scipy.constants
 
 
-def init_numerical_height(chunk, r, u, constants):
+def init_numerical_height(chunk, r, kdtree, constants):
     num_h = np.empty((chunk[1] - chunk[0],))
     for i in range(*chunk):
-        _, _, aug_r_len, _ = compute_augmented_nb(
-            r, u, i, [], constants.nb_threshold, constants.bounds
-        )
+        nb_idx = kdtree.query_radius(r[i].reshape(1, -1), constants.nb_threshold)
+        nb = r[nb_idx[0]]
 
+        r_len = np.linalg.norm(nb - r[i], axis=1)
         num_h[i - chunk[0]] = constants.V * np.sum(
-            W_spiky(constants.kernel_h, np.concatenate([aug_r_len, np.array([0])]))
+            W_spiky(constants.kernel_h, np.concatenate([r_len, np.array([0])]))
         )
     return (num_h,)
 
@@ -99,33 +101,45 @@ def compute_augmented_nb(r, u, i, arrs_to_augment, nb_threshold, bounds):
     return aug_r - r[i], aug_u - u[i], aug_r_len, result
 
 
-def update_fields(chunk, r, u, Gamma, num_h, constants):
+def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
     divergence = np.empty((chunk[1] - chunk[0],))
     curvature = np.empty_like(divergence)
     new_Gamma = np.empty_like(divergence)
 
     # TODO: there is a far faster way to construct neighborhoods
     for i in range(*chunk):
+        nb_idx = kdtree.query_radius(r[i].reshape(1, -1), constants.nb_threshold)[0]
+        curr_idx = np.where(nb_idx == i)
+        nb_idx = np.delete(nb_idx, curr_idx)
+
+        rij = r[nb_idx] - r[i]
+        r_len = np.linalg.norm(rij, axis=1)
+        uij = u[nb_idx] - u[i]
+        num_h_nb = num_h[nb_idx]
+
+        if r_len.min() == 0:
+            raise Exception("Multiple particles found at the same point!")
+
         # construct the augmented neighborhood
-        aug_rij, aug_uij, aug_r_len, [aug_num_h, aug_Gamma] = compute_augmented_nb(
-            r, u, i, [num_h, Gamma], constants.nb_threshold, constants.bounds
-        )
+        # aug_rij, aug_uij, aug_r_len, [aug_num_h, aug_Gamma] = compute_augmented_nb(
+        #     r, u, i, [num_h, Gamma], constants.nb_threshold, constants.bounds
+        # )
 
         # compute the gradient of the smoothing kernel
         # TODO: possible that this operator needs to take height curvature into account
         # the gradient returned by grad_kernel points radially inwards, toward r[i]
-        grad_kernel = grad_W_spiky(aug_rij, constants.kernel_h, aug_r_len)
-        grad_kernel_reduced = 2 * np.linalg.norm(grad_kernel, axis=1) / aug_r_len
+        grad_kernel = grad_W_spiky(rij, constants.kernel_h, r_len)
+        grad_kernel_reduced = 2 * np.linalg.norm(grad_kernel, axis=1) / r_len
 
         # uij is the velocity in the outwards radial direction
         # so the dot product will be negative if uij points outward
         # so the divergence needs an extra negative sign
         divergence[i - chunk[0]] = -constants.V * np.sum(
-            np.sum((aug_uij * grad_kernel), axis=1) / aug_num_h
+            np.sum((uij * grad_kernel), axis=1) / num_h_nb
         )
 
         curvature[i - chunk[0]] = constants.V * np.sum(
-            (aug_num_h - num_h[i]) / aug_num_h * grad_kernel_reduced
+            (num_h_nb - num_h[i]) / num_h_nb * grad_kernel_reduced
         )
 
         # because of the product here, if Gamma is uniform to begin with it never changes
@@ -133,40 +147,55 @@ def update_fields(chunk, r, u, Gamma, num_h, constants):
             constants.surfactant_diffusion_coefficient
             * constants.delta_t
             * np.sum(
-                constants.V / aug_num_h * (aug_Gamma - Gamma[i]) * grad_kernel_reduced
+                constants.V
+                / num_h_nb
+                * (Gamma[nb_idx] - Gamma[i])
+                * grad_kernel_reduced
             )
         )
 
     return divergence, curvature, new_Gamma
 
 
-def compute_forces(chunk, r, u, num_h, pressure, surface_tension, constants):
+def compute_forces(chunk, r, u, num_h, pressure, surface_tension, kdtree, constants):
     force = np.zeros((chunk[1] - chunk[0], 2))
 
     for i in range(*chunk):
-        (
-            aug_rij,
-            aug_uij,
-            aug_r_len,
-            [aug_num_h, aug_pressure, aug_surface_tension],
-        ) = compute_augmented_nb(
-            r,
-            u,
-            i,
-            [num_h, pressure, surface_tension],
-            constants.nb_threshold,
-            constants.bounds,
-        )
+        nb_idx = kdtree.query_radius(r[i].reshape(1, -1), constants.nb_threshold)[0]
+        curr_idx = np.where(nb_idx == i)
+        nb_idx = np.delete(nb_idx, curr_idx)
 
-        grad_kernel = grad_W_spiky(aug_rij, constants.kernel_h, aug_r_len)
-        grad_kernel_reduced = (
-            2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / aug_r_len
-        )[:, None]
+        rij = r[nb_idx] - r[i]
+        r_len = np.linalg.norm(rij, axis=1)
+        uij = u[nb_idx] - u[i]
+        num_h_nb = num_h[nb_idx]
+
+        if r_len.min() == 0:
+            raise Exception("Multiple particles found at the same point!")
+
+        # (
+        #     aug_rij,
+        #     aug_uij,
+        #     aug_r_len,
+        #     [aug_num_h, aug_pressure, aug_surface_tension],
+        # ) = compute_augmented_nb(
+        #     r,
+        #     u,
+        #     i,
+        #     [num_h, pressure, surface_tension],
+        #     constants.nb_threshold,
+        #     constants.bounds,
+        # )
+
+        grad_kernel = grad_W_spiky(rij, constants.kernel_h, r_len)
+        grad_kernel_reduced = (2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / r_len)[
+            :, None
+        ]
 
         viscosity_force = (
             constants.V**2
             * constants.mu
-            * np.sum(aug_uij / aug_num_h[:, np.newaxis] * grad_kernel_reduced, axis=0)
+            * np.sum(uij / num_h_nb[:, np.newaxis] * grad_kernel_reduced, axis=0)
         )
 
         # TODO: vorticity confinement force and capillary force
@@ -175,7 +204,7 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, constants):
             * constants.V**2
             * np.sum(
                 num_h[i]
-                * (pressure[i] / num_h[i] ** 2 + aug_pressure / aug_num_h**2)[
+                * (pressure[i] / num_h[i] ** 2 + pressure[nb_idx] / num_h_nb**2)[
                     :, np.newaxis
                 ]
                 * grad_kernel,
@@ -235,6 +264,9 @@ def step(
     constants,
     pool,
 ):
+    # generate a kdtree to speed up nearest neighbor search
+    kdtree = KDTree(r)
+
     # the surface tension is that of water (72e-3 N/m) minus the change caused by the surfactant
     surface_tension = 72e-3 - 293.15 * scipy.constants.R * Gamma
 
@@ -242,7 +274,7 @@ def step(
         total_count=constants.particle_count,
         pool=pool,
         func=init_numerical_height,
-        constant_args=[r, u, constants],
+        constant_args=[r, kdtree, constants],
     )
 
     if adv_h is None:
@@ -252,7 +284,7 @@ def step(
         total_count=constants.particle_count,
         pool=pool,
         func=update_fields,
-        constant_args=[r, u, Gamma, num_h, constants],
+        constant_args=[r, u, Gamma, num_h, kdtree, constants],
     )
 
     pressure = (
@@ -270,7 +302,7 @@ def step(
         total_count=constants.particle_count,
         pool=pool,
         func=compute_forces,
-        constant_args=[r, u, num_h, pressure, surface_tension, constants],
+        constant_args=[r, u, num_h, pressure, surface_tension, kdtree, constants],
     )
 
     # TODO: updating by half should improve stability
