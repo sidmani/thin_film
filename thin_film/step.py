@@ -7,20 +7,16 @@ from .util import chunk_starmap
 import scipy.constants
 
 
-def get_numerical_height(chunk, r, kdtree, constants, inner_chunk_size=500):
-    num_h = np.empty((chunk[1] - chunk[0],))
+def get_numerical_height(chunk, r, kdtree, constants):
+    _, nb_dist = kdtree.query_radius(
+        r[chunk[0] : chunk[1]],
+        constants.nb_threshold,
+        return_distance=True,
+    )
 
-    for i in range(chunk[0], chunk[1], inner_chunk_size):
-        upper_bound = min(i + inner_chunk_size, chunk[1])
-        _, nb_dist = kdtree.query_radius(
-            r[i:upper_bound],
-            constants.nb_threshold,
-            return_distance=True,
-        )
-
-        num_h[i - chunk[0] : upper_bound - chunk[0]] = constants.V * np.array(
-            [W_spiky(constants.kernel_h, nb_dist_j).sum() for nb_dist_j in nb_dist]
-        )
+    num_h = constants.V * np.array(
+        [W_spiky(constants.kernel_h, nb_dist_j).sum() for nb_dist_j in nb_dist]
+    )
 
     return (num_h,)
 
@@ -30,9 +26,13 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
     curvature = np.empty_like(divergence)
     new_Gamma = np.empty_like(divergence)
 
+    nb_idxs, nb_dists = kdtree.query_radius(
+        r[chunk[0] : chunk[1]], constants.nb_threshold, return_distance=True
+    )
+
     for i in range(*chunk):
-        nb_idx = kdtree.query_radius(r[i].reshape(1, -1), constants.nb_threshold)[0]
         # delete the current point from the neighborhood
+        nb_idx = nb_idxs[i - chunk[0]]
         nb_idx = np.delete(nb_idx, np.where(nb_idx == i))
 
         rij = r[nb_idx] - r[i]
@@ -75,11 +75,23 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
     return divergence, curvature, new_Gamma
 
 
-def compute_forces(chunk, r, u, num_h, pressure, surface_tension, kdtree, constants):
+def compute_forces(
+    chunk,
+    r,
+    u,
+    num_h,
+    pressure,
+    surface_tension,
+    kdtree,
+    constants,
+):
     force = np.zeros((chunk[1] - chunk[0], 2))
+    nb_idxs, nb_dists = kdtree.query_radius(
+        r[chunk[0] : chunk[1]], constants.nb_threshold, return_distance=True
+    )
 
     for i in range(*chunk):
-        nb_idx = kdtree.query_radius(r[i].reshape(1, -1), constants.nb_threshold)[0]
+        nb_idx = nb_idxs[i - chunk[0]]
         nb_idx = np.delete(nb_idx, np.where(nb_idx == i))
 
         rij = r[nb_idx] - r[i]
@@ -157,14 +169,7 @@ def boundary_reflect(r, u, bounds):
     u[:, 1] *= np.where(exit_top, 1, -1)
 
 
-def step(
-    r,
-    u,
-    Gamma,
-    adv_h,
-    constants,
-    pool,
-):
+def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
     # generate a kd-tree to speed up nearest neighbor search
     kdtree = KDTree(r)
 
@@ -176,6 +181,7 @@ def step(
         pool=pool,
         func=get_numerical_height,
         constant_args=[r, kdtree, constants],
+        max_chunk_size=max_chunk_size,
     )
 
     if adv_h is None:
@@ -186,6 +192,7 @@ def step(
         pool=pool,
         func=update_fields,
         constant_args=[r, u, Gamma, num_h, kdtree, constants],
+        max_chunk_size=max_chunk_size,
     )
 
     pressure = (
@@ -204,6 +211,7 @@ def step(
         pool=pool,
         func=compute_forces,
         constant_args=[r, u, num_h, pressure, surface_tension, kdtree, constants],
+        max_chunk_size=max_chunk_size,
     )
 
     # TODO: updating by half should improve stability
