@@ -8,12 +8,14 @@ import scipy.constants
 
 
 def get_numerical_height(chunk, r, kdtree, constants):
+    # compute neighborhood for each point in the chunk
     _, nb_dist = kdtree.query_radius(
         r[chunk[0] : chunk[1]],
         constants.nb_threshold,
         return_distance=True,
     )
 
+    # evaluate the kernel on each neigborhood to compute the numerical height
     num_h = constants.V * np.array(
         [W_spiky(constants.kernel_h, nb_dist_j).sum() for nb_dist_j in nb_dist]
     )
@@ -21,33 +23,40 @@ def get_numerical_height(chunk, r, kdtree, constants):
     return (num_h,)
 
 
+def generate_nb(r, chunk, kdtree, nb_threshold):
+    nb_idxs, nb_dists = kdtree.query_radius(
+        r[chunk[0] : chunk[1]], nb_threshold, return_distance=True
+    )
+
+    for i in range(*chunk):
+        nb_idx = nb_idxs[i - chunk[0]]
+        curr_idx = np.where(nb_idx == i)
+        nb_idx = np.delete(nb_idx, curr_idx)
+        nb_dist = np.delete(nb_dists[i - chunk[0]], curr_idx)
+
+        # TODO: min() fails if neighborhood is empty
+        if nb_dist.min() == 0:
+            set_trace()
+            raise Exception("Multiple particles found at the same point!")
+
+        yield i, nb_idx, nb_dist
+
+
 def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
     divergence = np.empty((chunk[1] - chunk[0],))
     curvature = np.empty_like(divergence)
     new_Gamma = np.empty_like(divergence)
 
-    nb_idxs, nb_dists = kdtree.query_radius(
-        r[chunk[0] : chunk[1]], constants.nb_threshold, return_distance=True
-    )
-
-    for i in range(*chunk):
-        # delete the current point from the neighborhood
-        nb_idx = nb_idxs[i - chunk[0]]
-        nb_idx = np.delete(nb_idx, np.where(nb_idx == i))
-
+    for i, nb_idx, nb_dist in generate_nb(r, chunk, kdtree, constants.nb_threshold):
         rij = r[nb_idx] - r[i]
-        r_len = np.linalg.norm(rij, axis=1)
         uij = u[nb_idx] - u[i]
         num_h_nb = num_h[nb_idx]
-
-        if r_len.min() == 0:
-            raise Exception("Multiple particles found at the same point!")
 
         # compute the gradient of the smoothing kernel
         # TODO: possible that this operator needs to take height curvature into account
         # the gradient returned by grad_kernel points radially inwards, toward r[i]
-        grad_kernel = grad_W_spiky(rij, constants.kernel_h, r_len)
-        grad_kernel_reduced = 2 * np.linalg.norm(grad_kernel, axis=1) / r_len
+        grad_kernel = grad_W_spiky(rij, constants.kernel_h, nb_dist)
+        grad_kernel_reduced = 2 * np.linalg.norm(grad_kernel, axis=1) / nb_dist
 
         # uij is the velocity in the outwards radial direction
         # so the dot product will be negative if uij points outward
@@ -86,24 +95,14 @@ def compute_forces(
     constants,
 ):
     force = np.zeros((chunk[1] - chunk[0], 2))
-    nb_idxs, nb_dists = kdtree.query_radius(
-        r[chunk[0] : chunk[1]], constants.nb_threshold, return_distance=True
-    )
 
-    for i in range(*chunk):
-        nb_idx = nb_idxs[i - chunk[0]]
-        nb_idx = np.delete(nb_idx, np.where(nb_idx == i))
-
+    for i, nb_idx, nb_dist in generate_nb(r, chunk, kdtree, constants.nb_threshold):
         rij = r[nb_idx] - r[i]
-        r_len = np.linalg.norm(rij, axis=1)
         uij = u[nb_idx] - u[i]
         num_h_nb = num_h[nb_idx]
 
-        if r_len.min() == 0:
-            raise Exception("Multiple particles found at the same point!")
-
-        grad_kernel = grad_W_spiky(rij, constants.kernel_h, r_len)
-        grad_kernel_reduced = (2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / r_len)[
+        grad_kernel = grad_W_spiky(rij, constants.kernel_h, nb_dist)
+        grad_kernel_reduced = (2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / nb_dist)[
             :, None
         ]
 
