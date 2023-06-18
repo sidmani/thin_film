@@ -3,11 +3,18 @@ from .render import render_frame, generate_sampling_coords, resample_heights
 import signal
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from .step import init_values, step
-from rich.progress import Progress, MofNCompleteColumn, TextColumn, BarColumn, TimeRemainingColumn
+from .step import step
+from rich.progress import (
+    Progress,
+    MofNCompleteColumn,
+    TextColumn,
+    BarColumn,
+    TimeRemainingColumn,
+)
 from rich import print
 from multiprocessing import Pool, Manager
 from .fork_pdb import init_fork_pdb
+import numpy as np
 
 
 @dataclass
@@ -47,12 +54,36 @@ class Parameters:
         assert self.nb_threshold > 0
         assert self.delta_t > 0
 
+
 def init_process(stdin_lock):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     init_fork_pdb(stdin_lock)
 
+
 def _raise(e):
     raise e
+
+
+def init_values(constants):
+    bounds = constants.bounds
+    # r_sqrt = np.sqrt(constants.particle_count)
+    # r = generate_sampling_coords((r_sqrt, r_sqrt), constants.bounds)
+    r = np.random.rand(constants.particle_count, 2) * np.array(
+        [bounds[2] - bounds[0], bounds[3] - bounds[1]]
+    ) + np.array([bounds[0], bounds[1]])
+
+    u = np.zeros_like(r)
+
+    # surfactant concentration (Γ)
+    Gamma = (
+        np.random.rand(constants.particle_count)
+        # * 0.001
+        * constants.initial_surfactant_concentration
+        # + constants.initial_surfactant_concentration * 0.9995
+    )
+
+    return r, u, Gamma
+
 
 def simulate(steps, constants, workers):
     print(constants)
@@ -82,10 +113,7 @@ def simulate(steps, constants, workers):
 
         def submit_frame(frame, idx):
             frames.append((frame, idx))
-            progress.update(render_task, advance=1)
-            stdin_lock.acquire()
-            progress.refresh()
-            stdin_lock.release()
+            progress.update(render_task, advance=1, refresh=True)
 
         for i in range(steps):
             r, u, Gamma, adv_h = step(r, u, Gamma, adv_h, constants, pool)
@@ -93,12 +121,9 @@ def simulate(steps, constants, workers):
                 render_frame,
                 [r, adv_h, res, sampling_coords],
                 callback=lambda frame: submit_frame(frame, i),
-                error_callback=lambda e: _raise(e)
+                error_callback=_raise,
             )
-            progress.update(sim_task, advance=1)
-            stdin_lock.acquire()
-            progress.refresh()
-            stdin_lock.release()
+            progress.update(sim_task, advance=1, refresh=True)
 
         pool.close()
         pool.join()

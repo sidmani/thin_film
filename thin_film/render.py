@@ -71,6 +71,7 @@ def spec_to_rgb(spec, T):
 def render_frame(r, adv_h, res, bounds):
     heights = resample_heights(r, adv_h, res, bounds)
     # wavelengths of visible light in meters
+    # probably don't need this many buckets; 8-16 is enough
     all_wavelengths = np.arange(380, 785, step=5) * 1e-9
 
     # using refractive index of air (1) and water (1.33)

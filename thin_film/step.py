@@ -6,105 +6,23 @@ from .fork_pdb import fork_pdb
 from .util import chunk_starmap
 import scipy.constants
 
-def init_numerical_height(chunk, r, kdtree, constants, inner_chunk_size=500):
+
+def get_numerical_height(chunk, r, kdtree, constants, inner_chunk_size=500):
     num_h = np.empty((chunk[1] - chunk[0],))
 
-    # TODO: could do this without inner for loop by padding nb_idx
-    # it would use somewhat more memory - benchmarking needed
     for i in range(chunk[0], chunk[1], inner_chunk_size):
-        nb_idx = kdtree.query_radius(
-            r[i : i + inner_chunk_size], constants.nb_threshold
+        upper_bound = min(i + inner_chunk_size, chunk[1])
+        _, nb_dist = kdtree.query_radius(
+            r[i:upper_bound],
+            constants.nb_threshold,
+            return_distance=True,
         )
 
-        for j in range(i, min(i + inner_chunk_size, chunk[1])):
-            nb = r[nb_idx[j - i]]
+        num_h[i - chunk[0] : upper_bound - chunk[0]] = constants.V * np.array(
+            [W_spiky(constants.kernel_h, nb_dist_j).sum() for nb_dist_j in nb_dist]
+        )
 
-            r_len = np.linalg.norm(nb - r[j], axis=1)
-            num_h[j - chunk[0]] = constants.V * np.sum(
-                W_spiky(constants.kernel_h, np.concatenate([r_len, np.array([0])]))
-            )
     return (num_h,)
-
-
-def init_values(constants):
-    bounds = constants.bounds
-    r_sqrt = np.sqrt(constants.particle_count)
-    r = generate_sampling_coords((r_sqrt, r_sqrt), constants.bounds)
-    # r = np.random.rand(constants.particle_count, 2) * np.array(
-    #     [bounds[2] - bounds[0], bounds[3] - bounds[1]]
-    # ) + np.array([bounds[0], bounds[1]])
-
-    u = np.zeros_like(r)
-
-    # surfactant concentration (Γ)
-    Gamma = (
-        np.random.rand(constants.particle_count)
-        # * 0.001
-        * constants.initial_surfactant_concentration
-        # + constants.initial_surfactant_concentration * 0.9995
-    )
-
-    return r, u, Gamma
-
-
-def compute_augmented_nb(r, u, i, arrs_to_augment, nb_threshold, bounds):
-    # compute the neighborhood
-    r_len = np.linalg.norm(r - r[i], axis=1)
-    nb = (r_len < nb_threshold) & (r_len > 0)
-    r_nb = r[nb]
-
-    # reflect the neighborhood over the point horizontally and vertically
-    p = r[i]
-    r_nb_horizontal = p[0] - (r_nb[:, 0] - p[0])
-    r_nb_vertical = p[1] - (r_nb[:, 1] - p[1])
-
-    # find the points whose reflections are over the boundaries
-    augment_horizontal = (r_nb_horizontal < bounds[0]) | (r_nb_horizontal > bounds[2])
-    augment_vertical = (r_nb_vertical < bounds[1]) | (r_nb_vertical > bounds[3])
-
-    # TODO: can short circuit if no augmentation needed
-    result = []
-    for a in arrs_to_augment:
-        a_nb = a[nb]
-        result.append(
-            np.concatenate(
-                [
-                    a_nb,
-                    a_nb[augment_horizontal],
-                    a_nb[augment_vertical],
-                ]
-            )
-        )
-
-    aug_r = np.concatenate(
-        [
-            r_nb,
-            np.column_stack([r_nb_horizontal, r_nb[:, 1]])[augment_horizontal],
-            np.column_stack([r_nb[:, 0], r_nb_vertical])[augment_vertical],
-        ]
-    )
-
-    u_nb = u[nb]
-    aug_u = np.concatenate(
-        [
-            u_nb,
-            u_nb[augment_horizontal] * np.array([[-1, 1]]),
-            u_nb[augment_vertical] * np.array([[1, -1]]),
-        ]
-    )
-
-    r_len_nb = r_len[nb]
-    aug_r_len = np.concatenate(
-        [
-            r_len_nb,
-            r_len_nb[augment_horizontal],
-            r_len_nb[augment_vertical],
-        ]
-    )
-
-    # the paper sets r to point radially inwards and u to point outwards
-    # but we're going to set both pointing outwards because it makes more sense
-    return aug_r - r[i], aug_u - u[i], aug_r_len, result
 
 
 def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
@@ -222,8 +140,6 @@ def compute_forces(chunk, r, u, num_h, pressure, surface_tension, kdtree, consta
 
 
 # enforce boundaries by reflecting particles outside the bounds
-# this simply resets particles to the edge and will misalign
-# waves and other coordinated motion (but as delta_t -> 0, this becomes a non-issue)
 def boundary_reflect(r, u, bounds):
     exit_left = r[:, 0] < bounds[0]
     exit_right = r[:, 0] > bounds[2]
@@ -249,7 +165,7 @@ def step(
     constants,
     pool,
 ):
-    # generate a kdtree to speed up nearest neighbor search
+    # generate a kd-tree to speed up nearest neighbor search
     kdtree = KDTree(r)
 
     # the surface tension is that of water (72e-3 N/m) minus the change caused by the surfactant
@@ -258,7 +174,7 @@ def step(
     (num_h,) = chunk_starmap(
         total_count=constants.particle_count,
         pool=pool,
-        func=init_numerical_height,
+        func=get_numerical_height,
         constant_args=[r, kdtree, constants],
     )
 
