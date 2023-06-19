@@ -90,8 +90,7 @@ def simulate(workers, steps, constants):
     ) as progress:
         r, u, Gamma = init_values(constants)
         adv_h = None
-        print("Starting simulation.")
-        sim_task = progress.add_task("[red]Simulate", total=steps)
+        sim_task = progress.add_task("Simulate", total=steps)
 
         for i in range(steps):
             r, u, Gamma, adv_h = step(r, u, Gamma, adv_h, constants, pool)

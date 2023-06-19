@@ -113,11 +113,11 @@ def main():
         if not args.simulate:
             exit_with_error("No input provided to renderer!")
         
-        frames = render(data, workers=args.workers, res=(512, 512), constants=constants)
+        frames = render(data, workers=args.workers, res=(args.res, args.res), constants=constants)
 
-    im1 = plt.imshow(frames[0][0])
+    im1 = plt.imshow(frames[0])
     def update(f):
-        im1.set_data(f[0])
+        im1.set_data(f)
 
     plt.gca().invert_yaxis()
     ani = FuncAnimation(

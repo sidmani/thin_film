@@ -1,7 +1,20 @@
+from multiprocessing import Pool
 import numpy as np
-import scipy
 from .color_system import cs_srgb, cmf
-from .fork_pdb import fork_pdb
+from .fork_pdb import set_trace
+from sklearn.neighbors import KDTree
+from .step import get_numerical_height
+from rich.progress import (
+    Progress,
+    MofNCompleteColumn,
+    TextColumn,
+    BarColumn,
+    TimeRemainingColumn,
+)
+from .util import _raise, init_process
+from rich import print
+from .fork_pdb import init_fork_pdb
+from multiprocessing import Pool, Manager
 
 # TODO: memory usage here is pretty high
 # because we're processing the frames all at once. makes more sense to chunk them
@@ -14,17 +27,6 @@ def generate_sampling_coords(res, bounds):
     px = (bounds[2] - bounds[0]) * (px + 0.5) / res[0] + bounds[0]
     py = (bounds[3] - bounds[1]) * (py + 0.5) / res[1] + bounds[1]
     return np.c_[px.ravel(), py.ravel()]
-
-
-def resample_heights(r, adv_h, res, sampling_coords):
-    # sample the grid
-    # TODO: try out different interpolation methods
-    interp_h = scipy.interpolate.griddata(
-        r, adv_h[:, None], sampling_coords, method="linear", fill_value=0
-    )
-
-    # reshape into a grid
-    return interp_h.reshape(res, order="F")
 
 
 # compute wavelength-dependent amplitudes
@@ -42,7 +44,7 @@ def interfere(wavelength, n1, n2, theta1, d):
     if n1 < n2:
         phase_1 = np.pi
 
-    phase_2 = np.pi * 2 * opd[:, :, np.newaxis] / wavelength
+    phase_2 = np.pi * 2 * opd[:, np.newaxis] / wavelength
     del opd
     phase_diff = np.abs(phase_1 - phase_2)
     del phase_2
@@ -68,20 +70,55 @@ def spec_to_rgb(spec, T):
     return rgb
 
 
-def render_frame(r, adv_h, res, bounds):
-    heights = resample_heights(r, adv_h, res, bounds)
-    # wavelengths of visible light in meters
-    # probably don't need this many buckets; 8-16 is enough
+def render_frame_(args):
+    # def render_frame_(r, res, constants, chunk_size):
+    # wanted to use pool.imap, which doesn't unpack args
+    r, res, constants, chunk_size = args
+
+    sampling_coords = generate_sampling_coords(res, constants.bounds)
+    kdtree = KDTree(r)
+
+    chunks = []
     all_wavelengths = np.arange(380, 785, step=5) * 1e-9
+    for i in range(0, res[0] * res[1], chunk_size):
+        # interpolate the height using the SPH kernel
+        (interp_h,) = get_numerical_height(
+            chunk=(i, min(i + chunk_size, sampling_coords.shape[0])),
+            query_pts=sampling_coords,
+            kdtree=kdtree,
+            constants=constants,
+        )
 
-    # using refractive index of air (1) and water (1.33)
-    # looking at the film orthogonally (theta1=0)
-    intensity = interfere(all_wavelengths, n1=1, n2=1.33, theta1=0, d=2 * heights) ** 2
-    intensity = np.reshape(intensity, (-1, 81))
-    del heights
-    del all_wavelengths
+        intensity = (
+            interfere(all_wavelengths, n1=1, n2=1.33, theta1=0, d=2 * interp_h) ** 2
+        )
 
-    rgb = spec_to_rgb(intensity, cs_srgb.T)
-    del intensity
-    rgb = np.reshape(rgb, (*res, 3))
-    return rgb
+        rgb = spec_to_rgb(intensity, cs_srgb.T)
+        chunks.append(rgb)
+
+    return np.concatenate(chunks).reshape(*res, 3)
+
+
+def render(data, workers, res, constants, pixel_chunk_size=100000):
+    manager = Manager()
+    stdin_lock = manager.Lock()
+    init_fork_pdb(stdin_lock)
+
+    frames = []
+    with Pool(
+        workers, initializer=init_process, initargs=[stdin_lock]
+    ) as pool, Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeRemainingColumn(),
+        auto_refresh=False,
+    ) as progress:
+        render_task = progress.add_task("Render", total=len(data))
+
+        args = map(lambda f: (f[0], res, constants, pixel_chunk_size), data)
+        for frame in pool.imap(render_frame_, args):
+            frames.append(frame)
+            progress.update(render_task, advance=1, refresh=True)
+
+    return frames
