@@ -1,8 +1,4 @@
 from dataclasses import dataclass
-from .render import render_frame, generate_sampling_coords, resample_heights
-import signal
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
 from .step import step
 from rich.progress import (
     Progress,
@@ -13,8 +9,9 @@ from rich.progress import (
 )
 from rich import print
 from multiprocessing import Pool, Manager
-from .fork_pdb import init_fork_pdb
 import numpy as np
+from .util import _raise, init_process
+from .fork_pdb import init_fork_pdb
 
 
 @dataclass
@@ -55,15 +52,6 @@ class Parameters:
         assert self.delta_t > 0
 
 
-def init_process(stdin_lock):
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-    init_fork_pdb(stdin_lock)
-
-
-def _raise(e):
-    raise e
-
-
 def init_values(constants):
     bounds = constants.bounds
     # r_sqrt = np.sqrt(constants.particle_count)
@@ -85,17 +73,12 @@ def init_values(constants):
     return r, u, Gamma
 
 
-def simulate(steps, constants, workers):
-    print(constants)
-    res = (512, 512)
-
-    sampling_coords = generate_sampling_coords(res, constants.bounds)
-    frames = []
-
+def simulate(workers, steps, constants):
     manager = Manager()
     stdin_lock = manager.Lock()
     init_fork_pdb(stdin_lock)
 
+    data = []
     with Pool(
         workers, initializer=init_process, initargs=[stdin_lock]
     ) as pool, Progress(
@@ -109,36 +92,13 @@ def simulate(steps, constants, workers):
         adv_h = None
         print("Starting simulation.")
         sim_task = progress.add_task("[red]Simulate", total=steps)
-        render_task = progress.add_task("[green]Render", total=steps)
-
-        def submit_frame(frame, idx):
-            frames.append((frame, idx))
-            progress.update(render_task, advance=1, refresh=True)
 
         for i in range(steps):
             r, u, Gamma, adv_h = step(r, u, Gamma, adv_h, constants, pool)
-            pool.apply_async(
-                render_frame,
-                [r, adv_h, res, sampling_coords],
-                callback=lambda frame: submit_frame(frame, i),
-                error_callback=_raise,
-            )
+            data.append((r.copy(), adv_h.copy()))
             progress.update(sim_task, advance=1, refresh=True)
 
         pool.close()
         pool.join()
 
-    frames.sort(key=lambda x: x[1])
-
-    def update(f):
-        im1.set_data(f[0])
-
-    im1 = plt.imshow(frames[0][0])
-    plt.gca().invert_yaxis()
-    ani = FuncAnimation(
-        plt.gcf(),
-        func=update,
-        frames=frames,
-        interval=30,
-    )
-    plt.show()
+    return data

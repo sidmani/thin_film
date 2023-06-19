@@ -4,13 +4,12 @@ from sklearn.neighbors import KDTree
 from .kernel import grad_W_spiky, W_spiky
 from .fork_pdb import fork_pdb
 from .util import chunk_starmap
-import scipy.constants
 
 
-def get_numerical_height(chunk, r, kdtree, constants):
+def get_numerical_height(chunk, query_pts, kdtree, constants):
     # compute neighborhood for each point in the chunk
     _, nb_dist = kdtree.query_radius(
-        r[chunk[0] : chunk[1]],
+        query_pts[chunk[0] : chunk[1]],
         constants.nb_threshold,
         return_distance=True,
     )
@@ -84,6 +83,20 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
     return divergence, curvature, new_Gamma
 
 
+def compute_boundary_force(r, bounds, nb_threshold):
+    # lower bounds assumed to be 0
+    scale = 10 / nb_threshold
+    # TODO: this clip may be unnecessary; assume everything is inside the bounds
+    x = scale * np.clip(r, 0, None) - 1/2
+    f_left = -3 * x * (1 + x ** 2) ** (-5/2)
+
+    # upper bounds assumed to be square
+    x = scale * np.clip(bounds[2] - r, 0, None) - 1/2
+    f_right = -3 * x * (1 + x ** 2) ** (-5/2)
+
+    return (f_left - f_right) * 1e-9
+
+
 def compute_forces(
     chunk,
     r,
@@ -94,7 +107,7 @@ def compute_forces(
     kdtree,
     constants,
 ):
-    force = np.zeros((chunk[1] - chunk[0], 2))
+    force = np.empty((chunk[1] - chunk[0], 2))
 
     for i, nb_idx, nb_dist in generate_nb(r, chunk, kdtree, constants.nb_threshold):
         rij = r[nb_idx] - r[i]
@@ -124,6 +137,11 @@ def compute_forces(
                 * grad_kernel,
                 axis=0,
             )
+        )
+
+        # boundary force
+        boundary_force = compute_boundary_force(
+            r[i], constants.bounds, constants.nb_threshold
         )
 
         # marangoni_force = (
