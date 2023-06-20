@@ -16,7 +16,7 @@ def get_numerical_height(chunk, query_pts, kdtree, constants):
 
     # evaluate the kernel on each neigborhood to compute the numerical height
     num_h = constants.V * np.array(
-        [W_spiky(constants.kernel_h, nb_dist_j).sum() for nb_dist_j in nb_dist]
+        [W_spiky(constants.nb_threshold, nb_dist_j).sum() for nb_dist_j in nb_dist]
     )
 
     return (num_h,)
@@ -54,7 +54,7 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
         # compute the gradient of the smoothing kernel
         # TODO: possible that this operator needs to take height curvature into account
         # the gradient returned by grad_kernel points radially inwards, toward r[i]
-        grad_kernel = grad_W_spiky(rij, constants.kernel_h, nb_dist)
+        grad_kernel = grad_W_spiky(rij, constants.nb_threshold, nb_dist)
         grad_kernel_reduced = 2 * np.linalg.norm(grad_kernel, axis=1) / nb_dist
 
         # uij is the velocity in the outwards radial direction
@@ -87,12 +87,12 @@ def compute_boundary_force(r, bounds, nb_threshold):
     # lower bounds assumed to be 0
     scale = 10 / nb_threshold
     # TODO: this clip may be unnecessary; assume everything is inside the bounds
-    x = scale * np.clip(r, 0, None) - 1/2
-    f_left = -3 * x * (1 + x ** 2) ** (-5/2)
+    x = scale * np.clip(r, 0, None) - 1 / 2
+    f_left = -3 * x * (1 + x**2) ** (-5 / 2)
 
     # upper bounds assumed to be square
-    x = scale * np.clip(bounds[2] - r, 0, None) - 1/2
-    f_right = -3 * x * (1 + x ** 2) ** (-5/2)
+    x = scale * np.clip(bounds[2] - r, 0, None) - 1 / 2
+    f_right = -3 * x * (1 + x**2) ** (-5 / 2)
 
     return (f_left - f_right) * 1e-9
 
@@ -114,7 +114,7 @@ def compute_forces(
         uij = u[nb_idx] - u[i]
         num_h_nb = num_h[nb_idx]
 
-        grad_kernel = grad_W_spiky(rij, constants.kernel_h, nb_dist)
+        grad_kernel = grad_W_spiky(rij, constants.nb_threshold, nb_dist)
         grad_kernel_reduced = (2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / nb_dist)[
             :, None
         ]
@@ -235,7 +235,6 @@ def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
     # update velocity and position
     u += constants.delta_t / constants.m * force
     r += u * constants.delta_t
-
     boundary_reflect(r, u, constants.bounds)
 
     return r, u, new_Gamma, adv_h

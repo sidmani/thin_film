@@ -107,7 +107,7 @@ def render_frame(args):
         rgb = spec_to_rgb(intensity, cs_srgb.T)
         chunks.append(rgb)
 
-    return np.concatenate(chunks).reshape(*res, 3)
+    return np.concatenate(chunks).reshape(*res, 3, order="F")
 
 
 def render(data, workers, res, constants, pixel_chunk_size):

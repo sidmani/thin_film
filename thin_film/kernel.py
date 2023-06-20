@@ -1,18 +1,20 @@
 import math
 import numpy as np
 
+
 # Since this is a 2D formulation, the kernel has dimensions of 1/area
 def W_spiky(h, r_len):
     norm_factor = 3 / (2 * h)
+
     return (
-        np.where(r_len < h, 15 / (math.pi * h**6) * (h - r_len) ** 3, 0)
+        np.where(h - r_len > 0, 15 / (math.pi * h**6) * (h - r_len) ** 3, 0)
         / norm_factor
     )
 
 
 def grad_W_spiky(r, h, r_len):
     norm_factor = 3 / (2 * h)
-    grad = np.where(r_len < h, -45 / (math.pi * h**6) * (h - r_len) ** 2, 0)
+    grad = np.where(h - r_len > 0, -45 / (math.pi * h**6) * (h - r_len) ** 2, 0)
 
     return (grad / r_len)[:, None] * r / norm_factor
 

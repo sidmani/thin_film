@@ -22,7 +22,6 @@ class Parameters:
     bounds: tuple  # the rectangular boundary of the simulation in the format (x0, y0, x1, y1)
     initial_surfactant_concentration: float
     surfactant_diffusion_coefficient: float  # the coefficient in the convection-diffusion equation for the surfactant
-    kernel_h: float
     stiffness: float
     alpha_k: float
     alpha_d: float
