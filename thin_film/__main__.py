@@ -28,15 +28,14 @@ def main():
         default=[0, 0, 1, 1],
     )
 
+    # arguments for simulator
     parser.add_argument("--simulate", action="store_true", help="run the simulator")
     parser.add_argument(
         "--timesteps", type=int, help="the number of timesteps to simulate", default=10
     )
-
     parser.add_argument(
         "--delta-t", type=float, help="the time interval between frames", default=1 / 30
     )
-
     parser.add_argument(
         "--particle-count",
         type=int,
@@ -49,7 +48,6 @@ def main():
     parser.add_argument(
         "--particle-mass", type=float, help="the mass of each particle in kg"
     )
-
     parser.add_argument(
         "--particle-nb",
         type=float,
@@ -57,28 +55,31 @@ def main():
         default=0.1,
     )
 
+    # args for renderer
     parser.add_argument(
         "--render", action="store_true", help="render the simulated data"
     )
-
-    parser.add_argument("--res", type=int, help="The resolution of the rendered video as a single integer. Only square videos are supported.", default=512)
-
-    # parser.add_argument("--output")
+    parser.add_argument(
+        "--res",
+        type=int,
+        help="The resolution of the rendered video as a single integer. Only square videos are supported.",
+        default=512,
+    )
+    parser.add_argument(
+        "--pixel-chunk",
+        type=int,
+        help="The number of pixels to render simultaneously per frame. Higher number = faster, but more memory usage.",
+        default=20000,
+    )
+    parser.add_argument(
+        "--display",
+        action="store_true",
+        help="display the rendered video using matplotlib",
+    )
 
     # parser.add_argument(
-    #     "--preview",
-    #     help="Simultaneously render and display a low-resolution preview",
-    #     action="store_true",
-    # )
-
-    # parser.add_argument(
-    #     "--output",
+    #     "--sim-output",
     #     help="The file to save the raw simulation data to. .hdf5 will be appended to the filename if necessary. If this argument is not provided, the data will be maintained in memory",
-    # )
-
-    # parser.add_argument(
-    #     "--render",
-    #     help="Invoke the renderer immediately after simulation completes. All args after this argument are passed directly to the `render` command; see its help page for details.",
     # )
 
     args = parser.parse_args()
@@ -104,29 +105,38 @@ def main():
         bounds=tuple(args.bounds),
     )
 
+    if not args.simulate and not args.render:
+        exit_with_error("No commands received! Use --simulate or --render.")
+
     if args.simulate:
-        # if not args.render and not args.output and not args.discard:
-        #     exit_with_error("Data will be discarded after simulation! Use --render, --output <filename>, or --discard.")
         data = simulate(workers=args.workers, steps=args.timesteps, constants=constants)
 
     if args.render:
         if not args.simulate:
             exit_with_error("No input provided to renderer!")
-        
-        frames = render(data, workers=args.workers, res=(args.res, args.res), constants=constants)
 
-    im1 = plt.imshow(frames[0])
-    def update(f):
-        im1.set_data(f)
+        frames = render(
+            data,
+            workers=args.workers,
+            res=(args.res, args.res),
+            constants=constants,
+            pixel_chunk_size=args.pixel_chunk,
+        )
 
-    plt.gca().invert_yaxis()
-    ani = FuncAnimation(
-        plt.gcf(),
-        func=update,
-        frames=frames,
-        interval=30,
-    )
-    plt.show()
+        if args.display:
+            im1 = plt.imshow(frames[0])
+
+            def update(f):
+                im1.set_data(f)
+
+            plt.gca().invert_yaxis()
+            ani = FuncAnimation(
+                plt.gcf(),
+                func=update,
+                frames=frames,
+                interval=30,
+            )
+            plt.show()
 
     # from PIL import Image
 
@@ -144,7 +154,6 @@ def main():
     #     duration=100,
     #     loop=0,
     # )
-
 
 
 if __name__ == "__main__":

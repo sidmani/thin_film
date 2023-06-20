@@ -9,19 +9,14 @@ from rich.progress import (
     MofNCompleteColumn,
     TextColumn,
     BarColumn,
-    TimeRemainingColumn,
+    SpinnerColumn,
 )
 from .util import _raise, init_process
 from rich import print
 from .fork_pdb import init_fork_pdb
 from multiprocessing import Pool, Manager
 
-# TODO: memory usage here is pretty high
-# because we're processing the frames all at once. makes more sense to chunk them
-# into manageable pieces since the pixels are independent
 
-
-# generate the sampling coordinates once
 def generate_sampling_coords(res, bounds):
     px, py = np.mgrid[0 : res[0] : 1, 0 : res[1] : 1]
     px = (bounds[2] - bounds[0]) * (px + 0.5) / res[0] + bounds[0]
@@ -53,6 +48,7 @@ def interfere(wavelength, n1, n2, theta1, d):
     return 2 * np.cos(phase_diff / 2)
 
 
+# TODO: don't need 81 buckets
 def spec_to_rgb(spec, T):
     # sum [batch, 81, 3] over axis 1 -> XYZ is [batch, 3]
     xyz = np.sum(spec[:, :, np.newaxis] * cmf[np.newaxis, :, :], axis=1)
@@ -70,9 +66,7 @@ def spec_to_rgb(spec, T):
     return rgb
 
 
-def render_frame_(args):
-    # def render_frame_(r, res, constants, chunk_size):
-    # wanted to use pool.imap, which doesn't unpack args
+def render_frame(args):
     r, res, constants, chunk_size = args
 
     sampling_coords = generate_sampling_coords(res, constants.bounds)
@@ -99,7 +93,7 @@ def render_frame_(args):
     return np.concatenate(chunks).reshape(*res, 3)
 
 
-def render(data, workers, res, constants, pixel_chunk_size=100000):
+def render(data, workers, res, constants, pixel_chunk_size):
     manager = Manager()
     stdin_lock = manager.Lock()
     init_fork_pdb(stdin_lock)
@@ -111,14 +105,14 @@ def render(data, workers, res, constants, pixel_chunk_size=100000):
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         MofNCompleteColumn(),
-        TimeRemainingColumn(),
-        auto_refresh=False,
+        SpinnerColumn(),
     ) as progress:
         render_task = progress.add_task("Render", total=len(data))
 
-        args = map(lambda f: (f[0], res, constants, pixel_chunk_size), data)
-        for frame in pool.imap(render_frame_, args):
+        for frame in pool.imap(
+            render_frame, map(lambda f: (f[0], res, constants, pixel_chunk_size), data)
+        ):
             frames.append(frame)
-            progress.update(render_task, advance=1, refresh=True)
+            progress.update(render_task, advance=1)
 
     return frames
