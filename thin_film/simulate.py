@@ -86,16 +86,13 @@ def simulate(workers, steps, constants):
         BarColumn(),
         MofNCompleteColumn(),
         TimeRemainingColumn(),
-        auto_refresh=False,
     ) as progress:
         r, u, Gamma = init_values(constants)
         adv_h = None
-        sim_task = progress.add_task("Simulate", total=steps)
 
-        for i in range(steps):
+        for i in progress.track(range(steps), description="Simulate"):
             r, u, Gamma, adv_h = step(r, u, Gamma, adv_h, constants, pool)
             data.append((r.copy(), adv_h.copy()))
-            progress.update(sim_task, advance=1, refresh=True)
 
         pool.close()
         pool.join()

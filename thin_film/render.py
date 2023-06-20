@@ -24,30 +24,6 @@ def generate_sampling_coords(res, bounds):
     return np.c_[px.ravel(), py.ravel()]
 
 
-# compute wavelength-dependent amplitudes
-def interfere(wavelength, n1, n2, theta1, d):
-    # compute optical path difference
-    sin_theta2 = n1 / n2 * np.sin(theta1)
-    cos_theta2 = np.sqrt(1 - sin_theta2**2)
-    del sin_theta2
-
-    opd = 2 * d * n2 * cos_theta2
-    del cos_theta2
-
-    # phase difference, including the half turn added by reflection if necessary
-    phase_1 = 0
-    if n1 < n2:
-        phase_1 = np.pi
-
-    phase_2 = np.pi * 2 * opd[:, np.newaxis] / wavelength
-    del opd
-    phase_diff = np.abs(phase_1 - phase_2)
-    del phase_2
-
-    # return the new amplitude
-    return 2 * np.cos(phase_diff / 2)
-
-
 # TODO: don't need 81 buckets
 def spec_to_rgb(spec, T):
     # sum [batch, 81, 3] over axis 1 -> XYZ is [batch, 3]
@@ -64,6 +40,47 @@ def spec_to_rgb(spec, T):
 
     # TODO: normalize
     return rgb
+
+
+def fresnel(n1, n2, theta1):
+    # compute reflected power
+    # see https://en.wikipedia.org/wiki/Fresnel_equations
+    cos_theta_i = np.cos(theta1)
+    cos_theta_t = (1 - ((n1 / n2) * np.sin(theta1)) ** 2) ** 0.5
+
+    # reflectance for s- and p-polarized waves
+    R_s = (
+        (n1 * cos_theta_i - n2 * cos_theta_t) / (n1 * cos_theta_i + n2 * cos_theta_t)
+    ) ** 2
+    R_p = (
+        (n1 * cos_theta_t - n2 * cos_theta_i) / (n1 * cos_theta_t + n2 * cos_theta_i)
+    ) ** 2
+
+    # assume the light source is nonpolarized, so average the result
+    return (R_s + R_p) / 2
+
+
+def interfere(all_wavelengths, n1, n2, theta1, h):
+    # the optical path difference of a first-order reflection
+    D = 2 * n2 * h * np.cos(theta1)
+
+    # the corresponding first-order wavelength-dependent phase shift
+    phase_shift = 2 * np.pi * D[:, np.newaxis] / all_wavelengths
+
+    # use the Fresnel equations to compute the reflected power
+    r_as = fresnel(n1, n2, theta1)
+    t_as = 1 - r_as
+
+    r_sa = fresnel(n2, n1, theta1)
+    t_sa = 1 - r_sa
+
+    r = np.abs(
+        r_as
+        + (t_as * r_sa * t_sa * np.exp(1j * phase_shift))
+        / (1 - r_sa**2 * np.exp(1j * phase_shift))
+    )
+
+    return r**2
 
 
 def render_frame(args):
@@ -84,7 +101,7 @@ def render_frame(args):
         )
 
         intensity = (
-            interfere(all_wavelengths, n1=1, n2=1.33, theta1=0, d=2 * interp_h) ** 2
+            interfere(all_wavelengths, n1=1, n2=1.33, theta1=0, h=2 * interp_h)
         )
 
         rgb = spec_to_rgb(intensity, cs_srgb.T)
@@ -107,12 +124,14 @@ def render(data, workers, res, constants, pixel_chunk_size):
         MofNCompleteColumn(),
         SpinnerColumn(),
     ) as progress:
-        render_task = progress.add_task("Render", total=len(data))
-
-        for frame in pool.imap(
-            render_frame, map(lambda f: (f[0], res, constants, pixel_chunk_size), data)
+        for frame in progress.track(
+            pool.imap(
+                render_frame,
+                map(lambda f: (f[0], res, constants, pixel_chunk_size), data),
+            ),
+            description="Render",
+            total=len(data),
         ):
             frames.append(frame)
-            progress.update(render_task, advance=1)
 
     return frames
