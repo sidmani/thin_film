@@ -40,6 +40,7 @@ class Parameters:
             / ((self.bounds[2] - self.bounds[0]) * (self.bounds[3] - self.bounds[1]))
         )
 
+    # TODO call this function
     def validate(self):
         # check bounds are oriented right
         assert self.bounds[0] < self.bounds[2]
@@ -51,6 +52,7 @@ class Parameters:
         assert self.delta_t > 0
 
 
+# TODO: do a better job of initializing
 def init_values(constants):
     bounds = constants.bounds
     # r_sqrt = np.sqrt(constants.particle_count)

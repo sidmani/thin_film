@@ -67,6 +67,10 @@ def interfere(all_wavelengths, n1, n2, theta1, h):
     # the corresponding first-order wavelength-dependent phase shift
     phase_shift = 2 * np.pi * D[:, np.newaxis] / all_wavelengths
 
+    # when n2 > n1, the light wave is phase shifted by an additional half-turn
+    if n2 > n1:
+        phase_shift += np.pi
+
     # use the Fresnel equations to compute the reflected power
     r_as = fresnel(n1, n2, theta1)
     t_as = 1 - r_as

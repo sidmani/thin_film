@@ -96,7 +96,6 @@ def main():
         surfactant_diffusion_coefficient=1e-9,
         initial_surfactant_concentration=1e-6,
         nb_threshold=args.particle_nb,
-        kernel_h=1.01 * args.particle_nb,
         delta_t=args.delta_t,
         stiffness=1,
         alpha_k=1,
