@@ -1,6 +1,5 @@
 from multiprocessing import Pool
 import numpy as np
-from .color_system import cs_srgb, cmf
 from .fork_pdb import set_trace
 from sklearn.neighbors import KDTree
 from .step import get_numerical_height
@@ -14,6 +13,7 @@ from rich.progress import (
 from .util import _raise, init_process
 from rich import print
 from .fork_pdb import init_fork_pdb
+from .color import reflectance_to_rgb
 from multiprocessing import Pool, Manager
 
 
@@ -22,24 +22,6 @@ def generate_sampling_coords(res, bounds):
     px = (bounds[2] - bounds[0]) * (px + 0.5) / res[0] + bounds[0]
     py = (bounds[3] - bounds[1]) * (py + 0.5) / res[1] + bounds[1]
     return np.c_[px.ravel(), py.ravel()]
-
-
-# TODO: don't need 81 buckets
-def spec_to_rgb(spec, T):
-    # sum [batch, 81, 3] over axis 1 -> XYZ is [batch, 3]
-    xyz = np.sum(spec[:, :, np.newaxis] * cmf[np.newaxis, :, :], axis=1)
-    # den [batch, 1]
-    xyz = xyz / xyz.sum(axis=1, keepdims=True).clip(min=0)
-
-    rgb = np.einsum("ij,kj->ki", T, xyz)
-    min_v = rgb.min()
-    if min_v < 0:
-        rgb -= min_v
-    del xyz
-    rgb /= np.max(rgb)
-
-    # TODO: normalize
-    return rgb
 
 
 def fresnel(n1, n2, theta1):
@@ -60,6 +42,7 @@ def fresnel(n1, n2, theta1):
     return (R_s + R_p) / 2
 
 
+# returns the reflectance by wavelength of the medium
 def interfere(all_wavelengths, n1, n2, theta1, h):
     # the optical path difference of a first-order reflection
     D = 2 * n2 * h * np.cos(theta1)
@@ -104,11 +87,11 @@ def render_frame(args):
             constants=constants,
         )
 
-        intensity = (
-            interfere(all_wavelengths, n1=1, n2=1.33, theta1=0, h=2 * interp_h)
+        reflectance = interfere(
+            all_wavelengths, n1=1, n2=1.33, theta1=0, h=2 * interp_h
         )
 
-        rgb = spec_to_rgb(intensity, cs_srgb.T)
+        rgb = reflectance_to_rgb(reflectance)
         chunks.append(rgb)
 
     return np.concatenate(chunks).reshape(*res, 3, order="F")

@@ -115,8 +115,8 @@ def compute_forces(
         num_h_nb = num_h[nb_idx]
 
         grad_kernel = grad_W_spiky(rij, constants.nb_threshold, nb_dist)
-        grad_kernel_reduced = (2 * np.sqrt(np.sum(grad_kernel**2, axis=1)) / nb_dist)[
-            :, None
+        grad_kernel_reduced = (2 * np.linalg.norm(grad_kernel, axis=1) / nb_dist)[
+            :, np.newaxis
         ]
 
         viscosity_force = (
