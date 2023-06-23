@@ -33,11 +33,6 @@ def generate_nb(r, chunk, kdtree, nb_threshold):
         nb_idx = np.delete(nb_idx, curr_idx)
         nb_dist = np.delete(nb_dists[i - chunk[0]], curr_idx)
 
-        # TODO: min() fails if neighborhood is empty
-        if nb_dist.min() == 0:
-            set_trace()
-            raise Exception("Multiple particles found at the same point!")
-
         yield i, nb_idx, nb_dist
 
 
@@ -45,6 +40,8 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
     divergence = np.empty((chunk[1] - chunk[0],))
     curvature = np.empty_like(divergence)
     new_Gamma = np.empty_like(divergence)
+    normal = np.empty((chunk[1] - chunk[0], 3))
+    normal[:, 2] = 1
 
     for i, nb_idx, nb_dist in generate_nb(r, chunk, kdtree, constants.nb_threshold):
         rij = r[nb_idx] - r[i]
@@ -56,6 +53,10 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
         # the gradient returned by grad_kernel points radially inwards, toward r[i]
         grad_kernel = grad_W_spiky(rij, constants.nb_threshold, nb_dist)
         grad_kernel_reduced = 2 * np.linalg.norm(grad_kernel, axis=1) / nb_dist
+
+        normal[i - chunk[0], :2] = constants.V * np.sum(
+            ((num_h_nb - num_h[i]) / num_h_nb)[:, np.newaxis] * grad_kernel
+        )
 
         # uij is the velocity in the outwards radial direction
         # so the dot product will be negative if uij points outward
@@ -80,10 +81,10 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
             )
         )
 
-    return divergence, curvature, new_Gamma
+    return divergence, curvature, new_Gamma, normal
 
 
-def compute_boundary_force(r, bounds, nb_threshold):
+def compute_boundary_force(r, bounds, nb_threshold, strength=1e-11):
     # lower bounds assumed to be 0
     scale = 10 / nb_threshold
     # TODO: this clip may be unnecessary; assume everything is inside the bounds
@@ -94,7 +95,7 @@ def compute_boundary_force(r, bounds, nb_threshold):
     x = scale * np.clip(bounds[2] - r, 0, None) - 1 / 2
     f_right = -3 * x * (1 + x**2) ** (-5 / 2)
 
-    return (f_left - f_right) * 1e-9
+    return (f_left - f_right) * strength
 
 
 def compute_forces(
@@ -102,6 +103,7 @@ def compute_forces(
     r,
     u,
     num_h,
+    normal,
     pressure,
     surface_tension,
     kdtree,
@@ -119,13 +121,13 @@ def compute_forces(
             :, np.newaxis
         ]
 
+        # navier-stokes fluid forces
         viscosity_force = (
             constants.V**2
             * constants.mu
             * np.sum(uij / num_h_nb[:, np.newaxis] * grad_kernel_reduced, axis=0)
         )
 
-        # TODO: vorticity confinement force and capillary force
         pressure_force = (
             2
             * constants.V**2
@@ -142,6 +144,17 @@ def compute_forces(
         # boundary force
         boundary_force = compute_boundary_force(
             r[i], constants.bounds, constants.nb_threshold
+        )
+
+        # thin-film specific forces
+        capillary_force = (
+            surface_tension[i]
+            * constants.V**2
+            / num_h[i]
+            * (normal[i])[:2]
+            * np.sum(
+                np.sum(-rij * (normal[i])[:2], axis=1) / num_h_nb * grad_kernel_reduced
+            )
         )
 
         # marangoni_force = (
@@ -204,7 +217,7 @@ def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
     if adv_h is None:
         adv_h = num_h.copy()
 
-    divergence, curvature, new_Gamma = chunk_starmap(
+    divergence, curvature, new_Gamma, normal = chunk_starmap(
         total_count=constants.particle_count,
         pool=pool,
         func=update_fields,
@@ -227,7 +240,16 @@ def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
         total_count=constants.particle_count,
         pool=pool,
         func=compute_forces,
-        constant_args=[r, u, num_h, pressure, surface_tension, kdtree, constants],
+        constant_args=[
+            r,
+            u,
+            num_h,
+            normal,
+            pressure,
+            surface_tension,
+            kdtree,
+            constants,
+        ],
         max_chunk_size=max_chunk_size,
     )
 

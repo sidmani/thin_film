@@ -34,7 +34,7 @@ def interp_multicol(x, xp, fp):
     return np.column_stack(results)
 
 
-def reflectance_to_rgb(reflectance, illuminant=D65):
+def reflectance_to_rgb(reflectance, illuminant=D65, luminance_factor=1):
     # interpolate CMF and illuminant
     buckets = reflectance.shape[1]
     if buckets < CMF.shape[0]:
@@ -56,7 +56,9 @@ def reflectance_to_rgb(reflectance, illuminant=D65):
     xyz = xyz / illuminant_luminosity
 
     # convert XYZ to linear-rgb values
-    lin_rgb = np.einsum("ij,kj->ki", XYZ_TO_RGB, xyz).clip(min=0, max=1)
+    lin_rgb = (np.einsum("ij,kj->ki", XYZ_TO_RGB, xyz) * luminance_factor).clip(
+        min=0, max=1
+    )
 
     # apply gamma correction
     rgb = np.where(

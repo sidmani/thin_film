@@ -39,7 +39,6 @@ def fresnel(n1, n2, theta1):
     return (r_s + r_p) / 2, (t_s + t_p) / 2
 
 
-# returns the reflectance by wavelength of the medium
 def interfere(all_wavelengths, n1, n2, theta1, h):
     # the optical path difference of a first-order reflection
     D = 2 * n2 * h * np.cos(theta1)
@@ -52,14 +51,12 @@ def interfere(all_wavelengths, n1, n2, theta1, h):
     r_sa, t_sa = fresnel(n2, n1, theta1)
 
     # geometric sum of the complex amplitudes of all reflected waves
-    r = np.abs(
+    # squared to yield intensity
+    return np.abs(
         r_as
         + (t_as * r_sa * t_sa * np.exp(1j * phase_shift))
         / (1 - r_sa**2 * np.exp(1j * phase_shift))
-    )
-
-    # square amplitude to get reflected power 
-    return r**2
+    ) ** 2
 
 
 # TODO: improve memory usage
