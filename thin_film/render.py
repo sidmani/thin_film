@@ -62,14 +62,15 @@ def interfere(all_wavelengths, n1, n2, theta1, h):
     return r**2
 
 
+# TODO: improve memory usage
 def render_frame(args):
-    r, res, constants, chunk_size = args
+    r, res, constants, chunk_size, wavelength_buckets = args
 
     sampling_coords = generate_sampling_coords(res, constants.bounds)
     kdtree = KDTree(r)
 
     chunks = []
-    all_wavelengths = np.arange(380, 785, step=5) * 1e-9
+    all_wavelengths = np.linspace(380, 780, num=wavelength_buckets) * 1e-9
     for i in range(0, res[0] * res[1], chunk_size):
         # interpolate the height using the SPH kernel
         (interp_h,) = get_numerical_height(
@@ -89,7 +90,7 @@ def render_frame(args):
     return np.concatenate(chunks).reshape(*res, 3, order="F")
 
 
-def render(data, workers, res, constants, pixel_chunk_size):
+def render(data, workers, res, constants, pixel_chunk_size, wavelength_buckets):
     manager = Manager()
     stdin_lock = manager.Lock()
     init_fork_pdb(stdin_lock)
@@ -109,7 +110,7 @@ def render(data, workers, res, constants, pixel_chunk_size):
             pool.imap(
                 render_frame,
                 map(
-                    lambda step_data: (step_data[0], res, constants, pixel_chunk_size),
+                    lambda step_data: (step_data[0], res, constants, pixel_chunk_size, wavelength_buckets),
                     data,
                 ),
             ),

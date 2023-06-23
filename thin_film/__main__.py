@@ -1,4 +1,5 @@
 import argparse
+import numpy as np
 import sys
 import os
 from multiprocessing import cpu_count
@@ -72,6 +73,12 @@ def main():
         default=20000,
     )
     parser.add_argument(
+        "--wavelength-buckets",
+        type=int,
+        help="The resolution of the spectrum used for rendering. Higher number = slower, more memory usage, more accurate",
+        default=16,
+    )
+    parser.add_argument(
         "--display",
         action="store_true",
         help="display the rendered video using matplotlib",
@@ -120,6 +127,8 @@ def main():
             res=(args.res, args.res),
             constants=constants,
             pixel_chunk_size=args.pixel_chunk,
+            wavelength_buckets=args.wavelength_buckets,
+        )
         )
 
         if args.display:

@@ -9,7 +9,7 @@ The expected result looks like the image on this page: https://soapbubble.fandom
 Although it's a lot dimmer, since idk what illuminant they used or if they handled reflectance
 """
 
-all_wavelengths = np.arange(380, 785, step=5) * 1e-9
+all_wavelengths = np.linspace(380, 780, num=16) * 1e-9
 h = np.arange(0, 1600, step=5) * 1e-9
 
 reflectance = interfere(all_wavelengths, n1=1, n2=1.33, theta1=0, h=h)
