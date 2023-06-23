@@ -10,8 +10,7 @@ from rich.progress import (
     BarColumn,
     SpinnerColumn,
 )
-from .util import _raise, init_process
-from rich import print
+from .util import init_process
 from .fork_pdb import init_fork_pdb
 from .color import reflectance_to_rgb
 from multiprocessing import Pool, Manager
@@ -25,21 +24,19 @@ def generate_sampling_coords(res, bounds):
 
 
 def fresnel(n1, n2, theta1):
-    # compute reflected power
-    # see https://en.wikipedia.org/wiki/Fresnel_equations
     cos_theta_i = np.cos(theta1)
+    # using snell's law and 1 - sin^2 = cos^2
+    # TODO: this can produce complex values that aren't handled properly
     cos_theta_t = (1 - ((n1 / n2) * np.sin(theta1)) ** 2) ** 0.5
 
-    # reflectance for s- and p-polarized waves
-    R_s = (
-        (n1 * cos_theta_i - n2 * cos_theta_t) / (n1 * cos_theta_i + n2 * cos_theta_t)
-    ) ** 2
-    R_p = (
-        (n1 * cos_theta_t - n2 * cos_theta_i) / (n1 * cos_theta_t + n2 * cos_theta_i)
-    ) ** 2
+    # amplitude reflection and transmission coefficients for s- and p-polarized waves
+    r_s = (n1 * cos_theta_i - n2 * cos_theta_t) / (n1 * cos_theta_i + n2 * cos_theta_t)
+    r_p = (n1 * cos_theta_t - n2 * cos_theta_i) / (n2 * cos_theta_i + n1 * cos_theta_t)
+    t_s = r_s + 1
+    t_p = n1 / n2 * (r_p + 1)
 
-    # assume the light source is nonpolarized, so average the result
-    return (R_s + R_p) / 2
+    # assume the light source is nonpolarized, so average the results
+    return (r_s + r_p) / 2, (t_s + t_p) / 2
 
 
 # returns the reflectance by wavelength of the medium
@@ -50,23 +47,18 @@ def interfere(all_wavelengths, n1, n2, theta1, h):
     # the corresponding first-order wavelength-dependent phase shift
     phase_shift = 2 * np.pi * D[:, np.newaxis] / all_wavelengths
 
-    # when n2 > n1, the light wave is phase shifted by an additional half-turn
-    if n2 > n1:
-        phase_shift += np.pi
+    # use the Fresnel equations to compute the reflection coefficients
+    r_as, t_as = fresnel(n1, n2, theta1)
+    r_sa, t_sa = fresnel(n2, n1, theta1)
 
-    # use the Fresnel equations to compute the reflected power
-    r_as = fresnel(n1, n2, theta1)
-    t_as = 1 - r_as
-
-    r_sa = fresnel(n2, n1, theta1)
-    t_sa = 1 - r_sa
-
+    # geometric sum of the complex amplitudes of all reflected waves
     r = np.abs(
         r_as
         + (t_as * r_sa * t_sa * np.exp(1j * phase_shift))
         / (1 - r_sa**2 * np.exp(1j * phase_shift))
     )
 
+    # square amplitude to get reflected power 
     return r**2
 
 
@@ -112,9 +104,14 @@ def render(data, workers, res, constants, pixel_chunk_size):
         SpinnerColumn(),
     ) as progress:
         for frame in progress.track(
+            # TODO: we should probably be using the advected height for rendering?
+            # How will that work with the kernel function?
             pool.imap(
                 render_frame,
-                map(lambda f: (f[0], res, constants, pixel_chunk_size), data),
+                map(
+                    lambda step_data: (step_data[0], res, constants, pixel_chunk_size),
+                    data,
+                ),
             ),
             description="Render",
             total=len(data),
