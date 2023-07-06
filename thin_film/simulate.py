@@ -7,10 +7,9 @@ from rich.progress import (
     BarColumn,
     TimeRemainingColumn,
 )
-from rich import print
 from multiprocessing import Pool, Manager
 import numpy as np
-from .util import _raise, init_process
+from .util import init_process
 from .fork_pdb import init_fork_pdb
 
 
@@ -31,10 +30,9 @@ class Parameters:
 
     @property
     def bounds(self):
-        edge = np.sqrt(
-            self.V * self.particle_count / self.rest_height
-        )
+        edge = np.sqrt(self.V * self.particle_count / self.rest_height)
         return (0, 0, edge, edge)
+
 
 # TODO: do a better job of initializing
 def init_values(constants):
@@ -76,8 +74,5 @@ def simulate(workers, steps, constants):
         for _ in progress.track(range(steps), description="Simulate"):
             r, u, Gamma, adv_h = step(r, u, Gamma, adv_h, constants, pool)
             data.append((r.copy(), adv_h.copy()))
-
-        pool.close()
-        pool.join()
 
     return data

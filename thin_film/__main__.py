@@ -5,20 +5,26 @@ import os
 from multiprocessing import cpu_count
 from matplotlib.animation import FuncAnimation
 from rich import print
-from thin_film.render import render
+from thin_film.render import RenderArgs, render
 import matplotlib.pyplot as plt
 from thin_film.util import exit_with_error
 from .simulate import simulate, Parameters
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="thinfilm", description="Thin film simulator")
+    parser = argparse.ArgumentParser(
+        prog="thinfilm",
+        description="Thin film simulator",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument(
         "--workers",
         type=int,
         help="the number of processes used concurrently. defaults to cpu_count - 1",
         default=cpu_count() - 1,
     )
+    # arguments for simulator
+    parser.add_argument("--simulate", action="store_true", help="run the simulator")
 
     parser.add_argument(
         "--rest-height",
@@ -26,9 +32,6 @@ def main():
         help="the rest height (thickness) of the thin-film in meters. usually you want a value from 1e-7 to 5e-7.",
         default=250e-9,
     )
-
-    # arguments for simulator
-    parser.add_argument("--simulate", action="store_true", help="run the simulator")
     parser.add_argument(
         "--timesteps", type=int, help="the number of timesteps to simulate", default=10
     )
@@ -45,7 +48,10 @@ def main():
         "--particle-volume", type=float, help="the volume of each particle in m^3"
     )
     parser.add_argument(
-        "--particle-mass", type=float, help="the mass of each particle in kg"
+        "--particle-mass",
+        type=float,
+        help="the mass of each particle in kg",
+        default=2e-8,
     )
     parser.add_argument(
         "--particle-nb",
@@ -61,20 +67,32 @@ def main():
     parser.add_argument(
         "--res",
         type=int,
-        help="The resolution of the rendered video as a single integer. Only square videos are supported.",
+        help="the resolution of the rendered video as a single integer. Only square videos are supported.",
         default=512,
     )
     parser.add_argument(
         "--pixel-chunk",
         type=int,
-        help="The number of pixels to render simultaneously per core. Higher number = faster, but more memory usage.",
+        help="the number of pixels to render simultaneously per core. Higher number = much faster, but more memory usage.",
         default=20000,
     )
     parser.add_argument(
         "--wavelength-buckets",
         type=int,
-        help="The resolution of the spectrum used for rendering. Higher number = slower, more memory usage, more accurate",
+        help="the resolution of the spectrum used for rendering. Higher number = slower, more memory usage, more accurate",
         default=16,
+    )
+    parser.add_argument(
+        "--interpolation",
+        type=str,
+        help="the type of interpolation to use. either `linear` or `nearest`.",
+        default="nearest",
+    )
+    parser.add_argument(
+        "--compute-height-from-kernel",
+        action="store_true",
+        help="use the SPH kernel to compute the height field. Removes high-frequency detail.",
+        default=False,
     )
     parser.add_argument(
         "--display",
@@ -96,7 +114,7 @@ def main():
     constants = Parameters(
         particle_count=args.particle_count,
         V=2e-11,
-        m=2e-8,
+        m=args.particle_mass,
         # diffusion coefficients in liquids are 1e-9 to 1e-10
         surfactant_diffusion_coefficient=1e-9,
         initial_surfactant_concentration=1e-6,
@@ -119,13 +137,19 @@ def main():
         if not args.simulate:
             exit_with_error("No input provided to renderer!")
 
+        render_args = RenderArgs(
+            res=(args.res, args.res),
+            pixel_chunk_size=args.pixel_chunk,
+            wavelength_buckets=args.wavelength_buckets,
+            use_advected_height=not args.compute_height_from_kernel,
+            interpolation=args.interpolation,
+        )
+
         frames = render(
             data,
             workers=args.workers,
-            res=(args.res, args.res),
             constants=constants,
-            pixel_chunk_size=args.pixel_chunk,
-            wavelength_buckets=args.wavelength_buckets,
+            render_args=render_args,
         )
         )
 

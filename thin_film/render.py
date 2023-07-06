@@ -1,5 +1,11 @@
+from collections import namedtuple
 from multiprocessing import Pool
 import numpy as np
+from scipy.interpolate import (
+    LinearNDInterpolator,
+    NearestNDInterpolator,
+    CloughTocher2DInterpolator,
+)
 from .fork_pdb import set_trace
 from sklearn.neighbors import KDTree
 from .step import get_numerical_height
@@ -52,42 +58,76 @@ def interfere(all_wavelengths, n1, n2, theta1, h):
 
     # geometric sum of the complex amplitudes of all reflected waves
     # squared to yield intensity
-    return np.abs(
-        r_as
-        + (t_as * r_sa * t_sa * np.exp(1j * phase_shift))
-        / (1 - r_sa**2 * np.exp(1j * phase_shift))
-    ) ** 2
+    return (
+        np.abs(
+            r_as
+            + (t_as * r_sa * t_sa * np.exp(1j * phase_shift))
+            / (1 - r_sa**2 * np.exp(1j * phase_shift))
+        )
+        ** 2
+    )
 
 
 # TODO: improve memory usage
 def render_frame(args):
-    r, res, constants, chunk_size, wavelength_buckets = args
+    ((r, adv_h), constants, render_args) = args
 
-    sampling_coords = generate_sampling_coords(res, constants.bounds)
-    kdtree = KDTree(r)
+    sampling_coords = generate_sampling_coords(render_args.res, constants.bounds)
+    if render_args.use_advected_height:
+        if render_args.interpolation == "nearest":
+            interpolate = NearestNDInterpolator(r, adv_h)
+        elif render_args.interpolation == "linear":
+            interpolate = LinearNDInterpolator(r, adv_h, fill_value=0)
+    else:
+        kdtree = KDTree(r)
 
     chunks = []
-    all_wavelengths = np.linspace(380, 780, num=wavelength_buckets) * 1e-9
-    for i in range(0, res[0] * res[1], chunk_size):
-        # interpolate the height using the SPH kernel
-        (interp_h,) = get_numerical_height(
-            chunk=(i, min(i + chunk_size, sampling_coords.shape[0])),
-            query_pts=sampling_coords,
-            kdtree=kdtree,
-            constants=constants,
-        )
+    all_wavelengths = np.linspace(380, 780, num=render_args.wavelength_buckets) * 1e-9
+    for i in range(
+        0, render_args.res[0] * render_args.res[1], render_args.pixel_chunk_size
+    ):
+        chunk = (i, min(i + render_args.pixel_chunk_size, sampling_coords.shape[0]))
+
+        if render_args.use_advected_height:
+            interp_h = interpolate(
+                sampling_coords[chunk[0] : chunk[1]],
+            )
+        else:
+            # interpolate the height using the SPH kernel
+            (interp_h,) = get_numerical_height(
+                chunk=chunk,
+                query_pts=sampling_coords,
+                kdtree=kdtree,
+                constants=constants,
+            )
 
         reflectance = interfere(
             all_wavelengths, n1=1, n2=1.33, theta1=0, h=2 * interp_h
         )
 
-        rgb = reflectance_to_rgb(reflectance)
-        chunks.append(rgb)
+        chunks.append(reflectance_to_rgb(reflectance))
 
-    return np.concatenate(chunks).reshape(*res, 3, order="F")
+    return np.concatenate(chunks).reshape(*render_args.res, 3, order="F")
 
 
-def render(data, workers, res, constants, pixel_chunk_size, wavelength_buckets):
+RenderArgs = namedtuple(
+    "RenderArgs",
+    [
+        "res",
+        "pixel_chunk_size",
+        "wavelength_buckets",
+        "use_advected_height",
+        "interpolation",
+    ],
+)
+
+
+def render(
+    data,
+    workers,
+    constants,
+    render_args,
+):
     manager = Manager()
     stdin_lock = manager.Lock()
     init_fork_pdb(stdin_lock)
@@ -102,12 +142,14 @@ def render(data, workers, res, constants, pixel_chunk_size, wavelength_buckets):
         SpinnerColumn(),
     ) as progress:
         for frame in progress.track(
-            # TODO: we should probably be using the advected height for rendering?
-            # How will that work with the kernel function?
             pool.imap(
                 render_frame,
                 map(
-                    lambda step_data: (step_data[0], res, constants, pixel_chunk_size, wavelength_buckets),
+                    lambda step_data: (
+                        step_data,
+                        constants,
+                        render_args,
+                    ),
                     data,
                 ),
             ),
