@@ -84,16 +84,14 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
     return divergence, curvature, new_Gamma, normal
 
 
-def compute_boundary_force(r, bounds, nb_threshold, strength=1e-9):
-    # lower bounds assumed to be 0
+def compute_boundary_force(r, nb_threshold, strength=1e-9):
     scale = 10 / nb_threshold
 
     # TODO: this clip may be unnecessary; assume everything is inside the bounds
     x = scale * np.clip(r, 0, None) - 1 / 2
     f_left = -3 * x * (1 + x**2) ** (-5 / 2)
 
-    # upper bounds assumed to be square
-    x = scale * np.clip(bounds[2] - r, 0, None) - 1 / 2
+    x = scale * np.clip(1 - r, 0, None) - 1 / 2
     f_right = -3 * x * (1 + x**2) ** (-5 / 2)
 
     return (f_left - f_right) * strength
@@ -144,7 +142,7 @@ def compute_forces(
 
         # boundary force
         boundary_force = compute_boundary_force(
-            r[i], constants.bounds, constants.nb_threshold
+            r[i], constants.nb_threshold
         )
 
         # thin-film specific forces
@@ -183,17 +181,17 @@ def compute_forces(
     return (force,)
 
 
-# enforce boundaries by reflecting particles outside the bounds
-def boundary_reflect(r, u, bounds):
-    exit_left = r[:, 0] < bounds[0]
-    exit_right = r[:, 0] > bounds[2]
-    exit_bottom = r[:, 1] < bounds[1]
-    exit_top = r[:, 1] > bounds[3]
+# enforce boundaries by reflecting particles
+def boundary_reflect(r, u):
+    exit_left = r[:, 0] < 0
+    exit_right = r[:, 0] > 1
+    exit_bottom = r[:, 1] < 0
+    exit_top = r[:, 1] > 1
 
-    r[:, 0] = np.where(exit_left, bounds[0] - r[:, 0], r[:, 0])
-    r[:, 0] = np.where(exit_right, 2 * bounds[2] - r[:, 0], r[:, 0])
-    r[:, 1] = np.where(exit_bottom, bounds[1] - r[:, 1], r[:, 1])
-    r[:, 1] = np.where(exit_top, 2 * bounds[3] - r[:, 1], r[:, 1])
+    r[:, 0] = np.where(exit_left, -r[:, 0], r[:, 0])
+    r[:, 0] = np.where(exit_right, 2 - r[:, 0], r[:, 0])
+    r[:, 1] = np.where(exit_bottom, -r[:, 1], r[:, 1])
+    r[:, 1] = np.where(exit_top, 2 - r[:, 1], r[:, 1])
 
     u[:, 0] *= np.where(exit_left, -1, 1)
     u[:, 0] *= np.where(exit_right, -1, 1)
@@ -259,6 +257,6 @@ def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
     # update velocity and position
     u += constants.delta_t / constants.m * force
     r += u * constants.delta_t
-    boundary_reflect(r, u, constants.bounds)
+    boundary_reflect(r, u)
 
     return r, u, new_Gamma, adv_h

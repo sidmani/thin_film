@@ -22,10 +22,10 @@ from .color import reflectance_to_rgb
 from multiprocessing import Pool, Manager
 
 
-def generate_sampling_coords(res, bounds):
+def generate_sampling_coords(res):
     px, py = np.mgrid[0 : res[0] : 1, 0 : res[1] : 1]
-    px = (bounds[2] - bounds[0]) * (px + 0.5) / res[0] + bounds[0]
-    py = (bounds[3] - bounds[1]) * (py + 0.5) / res[1] + bounds[1]
+    px = (px + 0.5) / res[0]
+    py = (py + 0.5) / res[1]
     return np.c_[px.ravel(), py.ravel()]
 
 
@@ -68,11 +68,10 @@ def interfere(all_wavelengths, n1, n2, theta1, h):
     )
 
 
-# TODO: improve memory usage
 def render_frame(args):
     ((r, adv_h), constants, render_args) = args
 
-    sampling_coords = generate_sampling_coords(render_args.res, constants.bounds)
+    sampling_coords = generate_sampling_coords(render_args.res)
     if render_args.use_advected_height:
         if render_args.interpolation == "nearest":
             interpolate = NearestNDInterpolator(r, adv_h)

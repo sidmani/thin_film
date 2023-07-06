@@ -30,7 +30,3 @@ def init_process(stdin_lock):
 def exit_with_error(e):
     print(f"[red]ERR:[/red] {e}")
     sys.exit(1)
-
-
-def _raise(e):
-    raise e

@@ -45,15 +45,6 @@ def main():
         default=10000,
     )
     parser.add_argument(
-        "--particle-volume", type=float, help="the volume of each particle in m^3"
-    )
-    parser.add_argument(
-        "--particle-mass",
-        type=float,
-        help="the mass of each particle in kg",
-        default=2e-8,
-    )
-    parser.add_argument(
         "--particle-nb",
         type=float,
         help="the radius of the neighborhood around each particle",
@@ -113,8 +104,6 @@ def main():
 
     constants = Parameters(
         particle_count=args.particle_count,
-        V=2e-11,
-        m=args.particle_mass,
         # diffusion coefficients in liquids are 1e-9 to 1e-10
         surfactant_diffusion_coefficient=1e-9,
         initial_surfactant_concentration=1e-6,
