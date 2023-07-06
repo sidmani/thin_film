@@ -84,9 +84,10 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
     return divergence, curvature, new_Gamma, normal
 
 
-def compute_boundary_force(r, bounds, nb_threshold, strength=1e-11):
+def compute_boundary_force(r, bounds, nb_threshold, strength=1e-9):
     # lower bounds assumed to be 0
     scale = 10 / nb_threshold
+
     # TODO: this clip may be unnecessary; assume everything is inside the bounds
     x = scale * np.clip(r, 0, None) - 1 / 2
     f_left = -3 * x * (1 + x**2) ** (-5 / 2)
@@ -147,13 +148,14 @@ def compute_forces(
         )
 
         # thin-film specific forces
-        capillary_force = (
-            surface_tension[i]
-            * constants.V**2
+        marangoni_force = (
+            constants.V
             / num_h[i]
-            * (normal[i])[:2]
             * np.sum(
-                np.sum(-rij * (normal[i])[:2], axis=1) / num_h_nb * grad_kernel_reduced
+                ((surface_tension[nb_idx] - surface_tension[i]) / num_h_nb)[:, np.newaxis]
+                * grad_kernel
+                * constants.V,
+                axis=0,
             )
         )
 

@@ -52,8 +52,7 @@ def reflectance_to_rgb(reflectance, illuminant=D65, luminance_factor=1):
     )
 
     # normalize XYZ
-    illuminant_luminosity = (interp_illuminant * interp_CMF[:, 1]).sum()
-    xyz = xyz / illuminant_luminosity
+    xyz /= (interp_illuminant * interp_CMF[:, 1]).sum()
 
     # convert XYZ to linear-rgb values
     lin_rgb = (np.einsum("ij,kj->ki", XYZ_TO_RGB, xyz) * luminance_factor).clip(
@@ -61,7 +60,6 @@ def reflectance_to_rgb(reflectance, illuminant=D65, luminance_factor=1):
     )
 
     # apply gamma correction
-    rgb = np.where(
+    return np.where(
         lin_rgb <= 0.0031308, 12.92 * lin_rgb, 1.055 * lin_rgb ** (1 / 2.4) - 0.055
     )
-    return rgb

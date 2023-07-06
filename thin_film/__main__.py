@@ -9,7 +9,6 @@ from thin_film.render import render
 import matplotlib.pyplot as plt
 from thin_film.util import exit_with_error
 from .simulate import simulate, Parameters
-from .fork_pdb import fork_pdb
 
 
 def main():
@@ -22,11 +21,10 @@ def main():
     )
 
     parser.add_argument(
-        "--bounds",
+        "--rest-height",
         type=float,
-        nargs=4,
-        help="the bottom-left and top-right coordinates of the boundary rectangle in the format x0 y0 x1 y1",
-        default=[0, 0, 1, 1],
+        help="the rest height (thickness) of the thin-film in meters. usually you want a value from 1e-7 to 5e-7.",
+        default=250e-9,
     )
 
     # arguments for simulator
@@ -69,7 +67,7 @@ def main():
     parser.add_argument(
         "--pixel-chunk",
         type=int,
-        help="The number of pixels to render simultaneously per frame. Higher number = faster, but more memory usage.",
+        help="The number of pixels to render simultaneously per core. Higher number = faster, but more memory usage.",
         default=20000,
     )
     parser.add_argument(
@@ -108,7 +106,7 @@ def main():
         alpha_k=1,
         alpha_d=1,
         mu=1e-2,
-        bounds=tuple(args.bounds),
+        rest_height=args.rest_height,
     )
 
     if not args.simulate and not args.render:
@@ -145,23 +143,6 @@ def main():
                 interval=30,
             )
             plt.show()
-
-    # from PIL import Image
-
-    # imgs = []
-    # for f in frames:
-    #     f = f[0]
-    #     rgb_array_scaled = (f * 255).astype(np.uint8)
-    #     imgs.append(Image.fromarray(rgb_array_scaled, "RGB"))
-
-    # imgs[0].save(
-    #     fp="test.gif",
-    #     format="GIF",
-    #     append_images=imgs,
-    #     save_all=True,
-    #     duration=100,
-    #     loop=0,
-    # )
 
 
 if __name__ == "__main__":
