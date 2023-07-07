@@ -40,6 +40,7 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
     divergence = np.empty((chunk[1] - chunk[0],))
     curvature = np.empty_like(divergence)
     new_Gamma = np.empty_like(divergence)
+    vorticity = np.empty_like(divergence)
     normal = np.empty((chunk[1] - chunk[0], 3))
     normal[:, 2] = 1
 
@@ -57,6 +58,8 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
         normal[i - chunk[0], :2] = constants.V * np.sum(
             ((num_h_nb - num_h[i]) / num_h_nb)[:, np.newaxis] * grad_kernel
         )
+
+        vorticity[i - chunk[0]] = -constants.V * np.sum(np.cross(uij, grad_kernel))
 
         # uij is the velocity in the outwards radial direction
         # so the dot product will be negative if uij points outward
@@ -81,7 +84,7 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
             )
         )
 
-    return divergence, curvature, new_Gamma, normal
+    return divergence, curvature, new_Gamma, normal, vorticity
 
 
 def compute_boundary_force(r, nb_threshold, strength=1e-9):
@@ -102,7 +105,7 @@ def compute_forces(
     r,
     u,
     num_h,
-    normal,
+    vorticity,
     pressure,
     surface_tension,
     kdtree,
@@ -140,12 +143,10 @@ def compute_forces(
             )
         )
 
-        # boundary force
         boundary_force = compute_boundary_force(
             r[i], constants.nb_threshold
         )
 
-        # thin-film specific forces
         marangoni_force = (
             constants.V
             / num_h[i]
@@ -157,15 +158,14 @@ def compute_forces(
             )
         )
 
-        # marangoni_force = (
-        #     constants.V**2
-        #     / num_h[i]
-        #     * np.sum(
-        #         ((aug_surface_tension - surface_tension[i]) / aug_num_h)[:, np.newaxis]
-        #         * grad_kernel,
-        #         axis=0,
-        #     )
-        # )
+        # extra forces
+        vorticity_arg = constants.V * np.sum((vorticity[nb_idx])[:, np.newaxis] * grad_kernel, axis=0)
+        vorticity_norm = np.linalg.norm(vorticity_arg)
+        if vorticity_norm == 0:
+            vorticity_force = 0
+        else:
+            vorticity_lhs = vorticity_arg / np.linalg.norm(vorticity_arg)
+            vorticity_force = 1e-5 * vorticity[i] * (vorticity_lhs[[1, 0]] * np.array([1, -1]))
 
         # viscosity_force = (
         #     constants.V**2
@@ -217,7 +217,7 @@ def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
     if adv_h is None:
         adv_h = num_h.copy()
 
-    divergence, curvature, new_Gamma, normal = chunk_starmap(
+    divergence, curvature, new_Gamma, normal, vorticity = chunk_starmap(
         total_count=constants.particle_count,
         pool=pool,
         func=update_fields,
@@ -244,7 +244,7 @@ def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
             r,
             u,
             num_h,
-            normal,
+            vorticity,
             pressure,
             surface_tension,
             kdtree,
@@ -253,7 +253,6 @@ def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
         max_chunk_size=max_chunk_size,
     )
 
-    # TODO: updating by half should improve stability
     # update velocity and position
     u += constants.delta_t / constants.m * force
     r += u * constants.delta_t

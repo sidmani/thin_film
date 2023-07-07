@@ -44,11 +44,7 @@ class Parameters:
 
 # TODO: do a better job of initializing
 def init_values(constants):
-    bounds = constants.bounds
-    r = np.random.rand(constants.particle_count, 2) * np.array(
-        [bounds[2] - bounds[0], bounds[3] - bounds[1]]
-    ) + np.array([bounds[0], bounds[1]])
-
+    r = np.random.rand(constants.particle_count, 2)
     u = np.zeros_like(r)
 
     # surfactant concentration (Γ)
