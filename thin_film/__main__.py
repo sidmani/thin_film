@@ -44,12 +44,6 @@ def main():
         help="the number of particles in the simulation",
         default=10000,
     )
-    parser.add_argument(
-        "--particle-nb",
-        type=float,
-        help="the radius of the neighborhood around each particle",
-        default=0.1,
-    )
 
     # args for renderer
     parser.add_argument(
@@ -64,13 +58,13 @@ def main():
     parser.add_argument(
         "--pixel-chunk",
         type=int,
-        help="the number of pixels to render simultaneously per core. Higher number = much faster, but more memory usage.",
+        help="the number of pixels to render simultaneously per core. Higher number = faster, but more memory usage.",
         default=20000,
     )
     parser.add_argument(
         "--wavelength-buckets",
         type=int,
-        help="the resolution of the spectrum used for rendering. Higher number = slower, more memory usage, more accurate",
+        help="the samples of the spectrum used for rendering. Higher number = slower, more memory usage, more accurate. Maximum is 81, but anything over 32 is unnoticeable",
         default=16,
     )
     parser.add_argument(
@@ -82,7 +76,7 @@ def main():
     parser.add_argument(
         "--compute-height-from-kernel",
         action="store_true",
-        help="use the SPH kernel to compute the height field. Removes high-frequency detail.",
+        help="use the SPH kernel to compute the height field. Less numerical error, but removes high-frequency detail. Higher memory usage.",
         default=False,
     )
     parser.add_argument(
@@ -107,7 +101,7 @@ def main():
         # diffusion coefficients in liquids are 1e-9 to 1e-10
         surfactant_diffusion_coefficient=1e-9,
         initial_surfactant_concentration=1e-6,
-        nb_threshold=args.particle_nb,
+        target_nb_size=300,
         delta_t=args.delta_t,
         stiffness=1,
         alpha_k=1,

@@ -16,22 +16,30 @@ from .fork_pdb import init_fork_pdb
 @dataclass
 class Parameters:
     particle_count: int
-    nb_threshold: float  # the radius to include particles as neighbors
+    target_nb_size: int # desired approximate neighborhood size
     initial_surfactant_concentration: float
     surfactant_diffusion_coefficient: float  # the coefficient in the convection-diffusion equation for the surfactant
     stiffness: float
     alpha_k: float
     alpha_d: float
     delta_t: float
-    V: float  # the half-volume of each particle
-    m: float  # the particle mass
     mu: float
     rest_height: float
 
     @property
-    def bounds(self):
-        edge = np.sqrt(self.V * self.particle_count / self.rest_height)
-        return (0, 0, edge, edge)
+    def nb_threshold(self):
+        # pi r^2 / area (1) = target_nb_size / particle_count
+        return np.sqrt(self.target_nb_size / (self.particle_count * np.pi))
+
+    @property
+    def V(self):
+        # the volume of each particle
+        return self.rest_height / self.particle_count
+    
+    @property
+    def m(self):
+        # mass is 1000 kg/m^3 * particle volume
+        return 1000 * self.V
 
 
 # TODO: do a better job of initializing
