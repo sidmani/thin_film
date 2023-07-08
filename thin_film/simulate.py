@@ -71,6 +71,7 @@ def simulate(workers, steps, constants):
         BarColumn(),
         MofNCompleteColumn(),
         TimeRemainingColumn(),
+        auto_refresh=False,
     ) as progress:
         r, u, Gamma = init_values(constants)
         adv_h = None

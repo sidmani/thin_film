@@ -77,6 +77,8 @@ def render_frame(args):
             interpolate = NearestNDInterpolator(r, adv_h)
         elif render_args.interpolation == "linear":
             interpolate = LinearNDInterpolator(r, adv_h, fill_value=0)
+        elif render_args.interpolation == "cubic":
+            interpolate = CloughTocher2DInterpolator(r, adv_h, fill_value=0)
     else:
         kdtree = KDTree(r)
 

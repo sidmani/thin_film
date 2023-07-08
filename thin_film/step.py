@@ -6,34 +6,32 @@ from .fork_pdb import fork_pdb
 from .util import chunk_starmap
 
 
-def get_numerical_height(chunk, query_pts, kdtree, constants):
-    # compute neighborhood for each point in the chunk
-    _, nb_dist = kdtree.query_radius(
-        query_pts[chunk[0] : chunk[1]],
-        constants.nb_threshold,
-        return_distance=True,
-    )
-
-    # evaluate the kernel on each neigborhood to compute the numerical height
-    num_h = constants.V * np.array(
-        [W_spiky(constants.nb_threshold, nb_dist_j).sum() for nb_dist_j in nb_dist]
-    )
-
-    return (num_h,)
-
-
-def generate_nb(r, chunk, kdtree, nb_threshold):
+def generate_nb(r, chunk, kdtree, nb_threshold, delete_center=True):
     nb_idxs, nb_dists = kdtree.query_radius(
         r[chunk[0] : chunk[1]], nb_threshold, return_distance=True
     )
 
     for i in range(*chunk):
         nb_idx = nb_idxs[i - chunk[0]]
-        curr_idx = np.where(nb_idx == i)
-        nb_idx = np.delete(nb_idx, curr_idx)
-        nb_dist = np.delete(nb_dists[i - chunk[0]], curr_idx)
+        if delete_center:
+            curr_idx = np.where(nb_idx == i)
+            nb_idx = np.delete(nb_idx, curr_idx)
+            nb_dist = np.delete(nb_dists[i - chunk[0]], curr_idx)
+        else:
+            nb_dist = nb_dists[i - chunk[0]]
 
         yield i, nb_idx, nb_dist
+
+
+def get_numerical_height(chunk, query_pts, kdtree, constants):
+    num_h = np.empty((chunk[1] - chunk[0],))
+    for i, _, nb_dist in generate_nb(query_pts, chunk, kdtree, constants.nb_threshold, delete_center=False):
+        # evaluate the kernel on each neigborhood to compute the numerical height
+        num_h[i - chunk[0]] = (
+            constants.V * W_spiky(constants.nb_threshold, nb_dist).sum()
+        )
+
+    return (num_h,)
 
 
 def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
@@ -41,8 +39,6 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
     curvature = np.empty_like(divergence)
     new_Gamma = np.empty_like(divergence)
     vorticity = np.empty_like(divergence)
-    normal = np.empty((chunk[1] - chunk[0], 3))
-    normal[:, 2] = 1
 
     for i, nb_idx, nb_dist in generate_nb(r, chunk, kdtree, constants.nb_threshold):
         rij = r[nb_idx] - r[i]
@@ -50,14 +46,8 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
         num_h_nb = num_h[nb_idx]
 
         # compute the gradient of the smoothing kernel
-        # TODO: possible that this operator needs to take height curvature into account
-        # the gradient returned by grad_kernel points radially inwards, toward r[i]
         grad_kernel = grad_W_spiky(rij, constants.nb_threshold, nb_dist)
         grad_kernel_reduced = 2 * np.linalg.norm(grad_kernel, axis=1) / nb_dist
-
-        normal[i - chunk[0], :2] = constants.V * np.sum(
-            ((num_h_nb - num_h[i]) / num_h_nb)[:, np.newaxis] * grad_kernel
-        )
 
         vorticity[i - chunk[0]] = -constants.V * np.sum(np.cross(uij, grad_kernel))
 
@@ -84,7 +74,7 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
             )
         )
 
-    return divergence, curvature, new_Gamma, normal, vorticity
+    return divergence, curvature, new_Gamma, vorticity
 
 
 def compute_boundary_force(r, nb_threshold, strength=1e-9):
@@ -143,15 +133,15 @@ def compute_forces(
             )
         )
 
-        boundary_force = compute_boundary_force(
-            r[i], constants.nb_threshold
-        )
+        boundary_force = compute_boundary_force(r[i], constants.nb_threshold)
 
         marangoni_force = (
             constants.V
             / num_h[i]
             * np.sum(
-                ((surface_tension[nb_idx] - surface_tension[i]) / num_h_nb)[:, np.newaxis]
+                ((surface_tension[nb_idx] - surface_tension[i]) / num_h_nb)[
+                    :, np.newaxis
+                ]
                 * grad_kernel
                 * constants.V,
                 axis=0,
@@ -159,13 +149,17 @@ def compute_forces(
         )
 
         # extra forces
-        vorticity_arg = constants.V * np.sum((vorticity[nb_idx])[:, np.newaxis] * grad_kernel, axis=0)
+        vorticity_arg = constants.V * np.sum(
+            (vorticity[nb_idx])[:, np.newaxis] * grad_kernel, axis=0
+        )
         vorticity_norm = np.linalg.norm(vorticity_arg)
         if vorticity_norm == 0:
             vorticity_force = 0
         else:
-            vorticity_lhs = vorticity_arg / np.linalg.norm(vorticity_arg)
-            vorticity_force = 1e-5 * vorticity[i] * (vorticity_lhs[[1, 0]] * np.array([1, -1]))
+            vorticity_lhs = vorticity_arg / vorticity_norm
+            vorticity_force = (
+                1e-3 * vorticity[i] * (vorticity_lhs[[1, 0]] * np.array([1, -1]))
+            )
 
         # viscosity_force = (
         #     constants.V**2
@@ -217,7 +211,7 @@ def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
     if adv_h is None:
         adv_h = num_h.copy()
 
-    divergence, curvature, new_Gamma, normal, vorticity = chunk_starmap(
+    divergence, curvature, new_Gamma, vorticity = chunk_starmap(
         total_count=constants.particle_count,
         pool=pool,
         func=update_fields,
