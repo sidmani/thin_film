@@ -13,7 +13,7 @@ from rich.progress import (
 )
 from .util import init_process
 from .fork_pdb import init_fork_pdb
-from .color import reflectance_to_rgb
+from .light import reflectance_to_rgb, interfere
 from multiprocessing import Pool, Manager
 
 
@@ -22,45 +22,6 @@ def generate_sampling_coords(res):
     px = (px + 0.5) / res[0]
     py = (py + 0.5) / res[1]
     return np.c_[px.ravel(), py.ravel()]
-
-
-def fresnel(n1, n2, theta1):
-    cos_theta_i = np.cos(theta1)
-    # using snell's law and 1 - sin^2 = cos^2
-    # TODO: this can produce complex values that aren't handled properly
-    cos_theta_t = (1 - ((n1 / n2) * np.sin(theta1)) ** 2) ** 0.5
-
-    # amplitude reflection and transmission coefficients for s- and p-polarized waves
-    r_s = (n1 * cos_theta_i - n2 * cos_theta_t) / (n1 * cos_theta_i + n2 * cos_theta_t)
-    r_p = (n1 * cos_theta_t - n2 * cos_theta_i) / (n2 * cos_theta_i + n1 * cos_theta_t)
-    t_s = r_s + 1
-    t_p = n1 / n2 * (r_p + 1)
-
-    # assume the light source is nonpolarized, so average the results
-    return (r_s + r_p) / 2, (t_s + t_p) / 2
-
-
-def interfere(all_wavelengths, n1, n2, theta1, h):
-    # the optical path difference of a first-order reflection
-    D = 2 * n2 * h * np.cos(theta1)
-
-    # the corresponding first-order wavelength-dependent phase shift
-    phase_shift = 2 * np.pi * D[:, np.newaxis] / all_wavelengths
-
-    # use the Fresnel equations to compute the reflection coefficients
-    r_as, t_as = fresnel(n1, n2, theta1)
-    r_sa, t_sa = fresnel(n2, n1, theta1)
-
-    # geometric sum of the complex amplitudes of all reflected waves
-    # squared to yield intensity
-    return (
-        np.abs(
-            r_as
-            + (t_as * r_sa * t_sa * np.exp(1j * phase_shift))
-            / (1 - r_sa**2 * np.exp(1j * phase_shift))
-        )
-        ** 2
-    )
 
 
 def render_frame(args):
