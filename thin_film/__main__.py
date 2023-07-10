@@ -45,10 +45,22 @@ def main():
         default=10000,
     )
     parser.add_argument(
+        "--stiffness",
+        type=float,
+        help="the resistance of the fluid to compression",
+        default=10,
+    )
+    parser.add_argument(
         "--vorticity",
         type=float,
-        help="the swirliness of the simulation",
+        help="the swirliness of the fluid",
         default=1e-2
+    )
+    parser.add_argument(
+        "--viscosity",
+        type=float,
+        help="the goopiness of the fluid",
+        default=1
     )
 
     # args for renderer
@@ -70,14 +82,8 @@ def main():
     parser.add_argument(
         "--wavelength-buckets",
         type=int,
-        help="the samples of the spectrum used for rendering. Higher number = slower, more memory usage, more accurate. Maximum is 81, but anything over 32 is unnoticeable",
+        help="the number of samples of the spectrum used for rendering. Higher number = slower, more memory usage, more accurate. Maximum is 81, but anything over 32 is unnoticeable",
         default=16,
-    )
-    parser.add_argument(
-        "--interpolation",
-        type=str,
-        help="the type of interpolation to use. either `linear` or `nearest`.",
-        default="nearest",
     )
     parser.add_argument(
         "--display",
@@ -104,9 +110,10 @@ def main():
         target_nb_size=300,
         delta_t=args.delta_t,
         vorticity=args.vorticity,
+        stiffness=args.stiffness,
         alpha_k=1,
         alpha_d=1,
-        mu=1e-2,
+        viscosity=args.viscosity,
         rest_height=args.rest_height,
     )
 
@@ -121,7 +128,7 @@ def main():
             exit_with_error("No input provided to renderer!")
 
         render_args = RenderArgs(
-            res=(args.res, args.res),
+            res=args.res,
             pixel_chunk_size=args.pixel_chunk,
             wavelength_buckets=args.wavelength_buckets,
         )

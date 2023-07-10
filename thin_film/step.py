@@ -117,10 +117,9 @@ def compute_forces(
             :, np.newaxis
         ]
 
-        # navier-stokes fluid forces
         viscosity_force = (
             constants.V**2
-            * constants.mu
+            * constants.viscosity
             * np.sum(uij / num_h_nb[:, np.newaxis] * grad_kernel_reduced, axis=0)
         )
 
@@ -162,7 +161,9 @@ def compute_forces(
         else:
             vorticity_lhs = vorticity_arg / vorticity_norm
             vorticity_force = (
-                constants.vorticity * vorticity[i] * (vorticity_lhs[[1, 0]] * np.array([1, -1]))
+                constants.vorticity
+                * vorticity[i]
+                * (vorticity_lhs[[1, 0]] * np.array([1, -1]))
             )
 
         # viscosity_force = (

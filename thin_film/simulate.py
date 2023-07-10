@@ -24,7 +24,7 @@ class Parameters:
     alpha_d: float
     delta_t: float
     vorticity: float
-    mu: float
+    viscosity: float
     rest_height: float
 
     def __post_init__(self):
@@ -33,8 +33,9 @@ class Parameters:
         # pi r^2 / area (1) = target_nb_size / particle_count
         # self.nb_threshold = np.sqrt(self.target_nb_size / (self.particle_count * np.pi))
         self.nb_threshold = 0.1
-        # mass is 1000 kg/m^3 * particle volume
+        # particle mass is density of water (1000 kg/m^3) * particle volume
         self.m = 1000 * self.V
+
 
 # TODO: do a better job of initializing
 def init_values(constants):
