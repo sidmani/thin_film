@@ -1,11 +1,6 @@
 from collections import namedtuple
 from multiprocessing import Pool
 import numpy as np
-from scipy.interpolate import (
-    LinearNDInterpolator,
-    NearestNDInterpolator,
-    CloughTocher2DInterpolator,
-)
 from .fork_pdb import set_trace
 from sklearn.neighbors import KDTree
 from .step import get_numerical_height
@@ -69,30 +64,33 @@ def interfere(all_wavelengths, n1, n2, theta1, h):
 
 
 def render_frame(args):
-    ((r, adv_h), render_args) = args
+    ((r,), constants, render_args) = args
 
-    # compute the reflectance and rgb values
-    all_wavelengths = np.linspace(380, 780, num=render_args.wavelength_buckets) * 1e-9
-    reflectance = interfere(all_wavelengths, n1=1, n2=1.33, theta1=0, h=2 * adv_h)
-    rgb = reflectance_to_rgb(reflectance)
-
-    if render_args.interpolation == "nearest":
-        interpolate = NearestNDInterpolator(r, rgb)
-    elif render_args.interpolation == "linear":
-        interpolate = LinearNDInterpolator(r, rgb, fill_value=0)
-    elif render_args.interpolation == "cubic":
-        interpolate = CloughTocher2DInterpolator(r, rgb, fill_value=0)
+    sampling_coords = generate_sampling_coords(render_args.res)
+    kdtree = KDTree(r)
 
     chunks = []
-    sampling_coords = generate_sampling_coords(render_args.res)
+    all_wavelengths = np.linspace(380, 780, num=render_args.wavelength_buckets) * 1e-9
     for i in range(
         0, render_args.res[0] * render_args.res[1], render_args.pixel_chunk_size
     ):
-        chunk = interpolate(sampling_coords[i: min(i + render_args.pixel_chunk_size, sampling_coords.shape[0])])
-        chunks.append(chunk)
+        chunk = (i, min(i + render_args.pixel_chunk_size, sampling_coords.shape[0]))
+
+        # interpolate the height using the SPH kernel
+        (interp_h,) = get_numerical_height(
+            chunk=chunk,
+            query_pts=sampling_coords,
+            kdtree=kdtree,
+            constants=constants,
+        )
+
+        reflectance = interfere(
+            all_wavelengths, n1=1, n2=1.33, theta1=0, h=2 * interp_h
+        )
+
+        chunks.append(reflectance_to_rgb(reflectance))
 
     return np.concatenate(chunks).reshape(*render_args.res, 3, order="F")
-
 
 RenderArgs = namedtuple(
     "RenderArgs",
@@ -100,7 +98,6 @@ RenderArgs = namedtuple(
         "res",
         "pixel_chunk_size",
         "wavelength_buckets",
-        "interpolation",
     ],
 )
 
@@ -108,6 +105,7 @@ RenderArgs = namedtuple(
 def render(
     data,
     workers,
+    constants,
     render_args,
 ):
     manager = Manager()
@@ -122,6 +120,7 @@ def render(
         BarColumn(),
         MofNCompleteColumn(),
         SpinnerColumn(),
+        # auto_refresh=False,
     ) as progress:
         for frame in progress.track(
             pool.imap(
@@ -129,6 +128,7 @@ def render(
                 map(
                     lambda step_data: (
                         step_data,
+                        constants,
                         render_args,
                     ),
                     data,

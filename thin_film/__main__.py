@@ -44,6 +44,12 @@ def main():
         help="the number of particles in the simulation",
         default=10000,
     )
+    parser.add_argument(
+        "--vorticity",
+        type=float,
+        help="the swirliness of the simulation",
+        default=1e-2
+    )
 
     # args for renderer
     parser.add_argument(
@@ -97,7 +103,7 @@ def main():
         initial_surfactant_concentration=1e-6,
         target_nb_size=300,
         delta_t=args.delta_t,
-        stiffness=1,
+        vorticity=args.vorticity,
         alpha_k=1,
         alpha_d=1,
         mu=1e-2,
@@ -118,8 +124,6 @@ def main():
             res=(args.res, args.res),
             pixel_chunk_size=args.pixel_chunk,
             wavelength_buckets=args.wavelength_buckets,
-            use_advected_height=not args.compute_height_from_kernel,
-            interpolation=args.interpolation,
         )
 
         frames = render(

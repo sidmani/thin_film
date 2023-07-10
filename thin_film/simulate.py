@@ -23,24 +23,18 @@ class Parameters:
     alpha_k: float
     alpha_d: float
     delta_t: float
+    vorticity: float
     mu: float
     rest_height: float
 
-    @property
-    def nb_threshold(self):
-        # pi r^2 / area (1) = target_nb_size / particle_count
-        return np.sqrt(self.target_nb_size / (self.particle_count * np.pi))
-
-    @property
-    def V(self):
+    def __post_init__(self):
         # the volume of each particle
-        return self.rest_height / self.particle_count
-    
-    @property
-    def m(self):
+        self.V = self.rest_height / self.particle_count
+        # pi r^2 / area (1) = target_nb_size / particle_count
+        # self.nb_threshold = np.sqrt(self.target_nb_size / (self.particle_count * np.pi))
+        self.nb_threshold = 0.1
         # mass is 1000 kg/m^3 * particle volume
-        return 1000 * self.V
-
+        self.m = 1000 * self.V
 
 # TODO: do a better job of initializing
 def init_values(constants):
@@ -74,10 +68,9 @@ def simulate(workers, steps, constants):
         auto_refresh=False,
     ) as progress:
         r, u, Gamma = init_values(constants)
-        adv_h = None
 
         for _ in progress.track(range(steps), description="Simulate"):
-            r, u, Gamma, adv_h = step(r, u, Gamma, adv_h, constants, pool)
-            data.append((r.copy(), adv_h.copy()))
+            r, u, Gamma = step(r, u, Gamma, constants, pool)
+            data.append((r.copy(),))
 
     return data

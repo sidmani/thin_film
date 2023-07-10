@@ -25,7 +25,9 @@ def generate_nb(r, chunk, kdtree, nb_threshold, delete_center=True):
 
 def get_numerical_height(chunk, query_pts, kdtree, constants):
     num_h = np.empty((chunk[1] - chunk[0],))
-    for i, _, nb_dist in generate_nb(query_pts, chunk, kdtree, constants.nb_threshold, delete_center=False):
+    for i, _, nb_dist in generate_nb(
+        query_pts, chunk, kdtree, constants.nb_threshold, delete_center=False
+    ):
         # evaluate the kernel on each neigborhood to compute the numerical height
         num_h[i - chunk[0]] = (
             constants.V * W_spiky(constants.nb_threshold, nb_dist).sum()
@@ -49,7 +51,9 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
         grad_kernel = grad_W_spiky(rij, constants.nb_threshold, nb_dist)
         grad_kernel_reduced = 2 * np.linalg.norm(grad_kernel, axis=1) / nb_dist
 
-        vorticity[i - chunk[0]] = -constants.V * np.sum(np.cross(uij, grad_kernel))
+        vorticity[i - chunk[0]] = -constants.V * np.sum(
+            np.cross(uij, grad_kernel) / num_h_nb
+        )
 
         # uij is the velocity in the outwards radial direction
         # so the dot product will be negative if uij points outward
@@ -158,7 +162,7 @@ def compute_forces(
         else:
             vorticity_lhs = vorticity_arg / vorticity_norm
             vorticity_force = (
-                1e-3 * vorticity[i] * (vorticity_lhs[[1, 0]] * np.array([1, -1]))
+                constants.vorticity * vorticity[i] * (vorticity_lhs[[1, 0]] * np.array([1, -1]))
             )
 
         # viscosity_force = (
@@ -193,7 +197,7 @@ def boundary_reflect(r, u):
     u[:, 1] *= np.where(exit_top, 1, -1)
 
 
-def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
+def step(r, u, Gamma, constants, pool, max_chunk_size=500):
     # generate a kd-tree to speed up nearest neighbor search
     kdtree = KDTree(r)
 
@@ -207,9 +211,6 @@ def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
         constant_args=[r, kdtree, constants],
         max_chunk_size=max_chunk_size,
     )
-
-    if adv_h is None:
-        adv_h = num_h.copy()
 
     divergence, curvature, new_Gamma, vorticity = chunk_starmap(
         total_count=constants.particle_count,
@@ -226,9 +227,6 @@ def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
         # is this sign correct?
         - constants.alpha_d * divergence
     )
-
-    # if divergence is positive, the height decreases
-    adv_h += -adv_h * divergence * constants.delta_t
 
     (force,) = chunk_starmap(
         total_count=constants.particle_count,
@@ -252,4 +250,4 @@ def step(r, u, Gamma, adv_h, constants, pool, max_chunk_size=500):
     r += u * constants.delta_t
     boundary_reflect(r, u)
 
-    return r, u, new_Gamma, adv_h
+    return r, u, new_Gamma
