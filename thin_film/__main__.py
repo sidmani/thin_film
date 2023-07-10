@@ -59,7 +59,7 @@ def main():
         "--pixel-chunk",
         type=int,
         help="the number of pixels to render simultaneously per core. Higher number = faster, but more memory usage.",
-        default=20000,
+        default=250000,
     )
     parser.add_argument(
         "--wavelength-buckets",
@@ -72,12 +72,6 @@ def main():
         type=str,
         help="the type of interpolation to use. either `linear` or `nearest`.",
         default="nearest",
-    )
-    parser.add_argument(
-        "--compute-height-from-kernel",
-        action="store_true",
-        help="use the SPH kernel to compute the height field. Less numerical error, but removes high-frequency detail. Higher memory usage.",
-        default=False,
     )
     parser.add_argument(
         "--display",

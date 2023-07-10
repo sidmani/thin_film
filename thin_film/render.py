@@ -69,44 +69,27 @@ def interfere(all_wavelengths, n1, n2, theta1, h):
 
 
 def render_frame(args):
-    ((r, adv_h), constants, render_args) = args
+    ((r, adv_h), render_args) = args
 
-    sampling_coords = generate_sampling_coords(render_args.res)
-    if render_args.use_advected_height:
-        if render_args.interpolation == "nearest":
-            interpolate = NearestNDInterpolator(r, adv_h)
-        elif render_args.interpolation == "linear":
-            interpolate = LinearNDInterpolator(r, adv_h, fill_value=0)
-        elif render_args.interpolation == "cubic":
-            interpolate = CloughTocher2DInterpolator(r, adv_h, fill_value=0)
-    else:
-        kdtree = KDTree(r)
+    # compute the reflectance and rgb values
+    all_wavelengths = np.linspace(380, 780, num=render_args.wavelength_buckets) * 1e-9
+    reflectance = interfere(all_wavelengths, n1=1, n2=1.33, theta1=0, h=2 * adv_h)
+    rgb = reflectance_to_rgb(reflectance)
+
+    if render_args.interpolation == "nearest":
+        interpolate = NearestNDInterpolator(r, rgb)
+    elif render_args.interpolation == "linear":
+        interpolate = LinearNDInterpolator(r, rgb, fill_value=0)
+    elif render_args.interpolation == "cubic":
+        interpolate = CloughTocher2DInterpolator(r, rgb, fill_value=0)
 
     chunks = []
-    all_wavelengths = np.linspace(380, 780, num=render_args.wavelength_buckets) * 1e-9
+    sampling_coords = generate_sampling_coords(render_args.res)
     for i in range(
         0, render_args.res[0] * render_args.res[1], render_args.pixel_chunk_size
     ):
-        chunk = (i, min(i + render_args.pixel_chunk_size, sampling_coords.shape[0]))
-
-        if render_args.use_advected_height:
-            interp_h = interpolate(
-                sampling_coords[chunk[0] : chunk[1]],
-            )
-        else:
-            # interpolate the height using the SPH kernel
-            (interp_h,) = get_numerical_height(
-                chunk=chunk,
-                query_pts=sampling_coords,
-                kdtree=kdtree,
-                constants=constants,
-            )
-
-        reflectance = interfere(
-            all_wavelengths, n1=1, n2=1.33, theta1=0, h=2 * interp_h
-        )
-
-        chunks.append(reflectance_to_rgb(reflectance))
+        chunk = interpolate(sampling_coords[i: min(i + render_args.pixel_chunk_size, sampling_coords.shape[0])])
+        chunks.append(chunk)
 
     return np.concatenate(chunks).reshape(*render_args.res, 3, order="F")
 
@@ -117,7 +100,6 @@ RenderArgs = namedtuple(
         "res",
         "pixel_chunk_size",
         "wavelength_buckets",
-        "use_advected_height",
         "interpolation",
     ],
 )
@@ -126,7 +108,6 @@ RenderArgs = namedtuple(
 def render(
     data,
     workers,
-    constants,
     render_args,
 ):
     manager = Manager()
@@ -148,7 +129,6 @@ def render(
                 map(
                     lambda step_data: (
                         step_data,
-                        constants,
                         render_args,
                     ),
                     data,
