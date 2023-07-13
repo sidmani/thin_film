@@ -1,5 +1,6 @@
 from collections import namedtuple
 from multiprocessing import Pool
+import cv2
 import numpy as np
 from .fork_pdb import set_trace
 from sklearn.neighbors import KDTree
@@ -46,9 +47,10 @@ def render_frame(args):
 
         chunks.append(reflectance_to_rgb(reflectance))
 
-    return np.concatenate(chunks).reshape(
-        render_args.res, render_args.res, 3, order="F"
-    )
+    return (
+        np.concatenate(chunks).reshape(render_args.res, render_args.res, 3, order="F")
+        * 255
+    ).astype(np.uint8)
 
 
 RenderArgs = namedtuple(
@@ -83,6 +85,12 @@ def render(
         SpinnerColumn(),
         # auto_refresh=False,
     ) as progress:
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        fps = 30
+        video_writer = cv2.VideoWriter(
+            "output.mp4", fourcc, fps, (render_args.res, render_args.res)
+        )
+
         for frame in progress.track(
             pool.imap(
                 render_frame,
@@ -100,6 +108,5 @@ def render(
             description="Render",
             total=len(data),
         ):
-            frames.append(frame)
-
-    return frames
+            video_writer.write(cv2.cvtColor(np.flip(frame, axis=0), cv2.COLOR_RGB2BGR))
+        video_writer.release()

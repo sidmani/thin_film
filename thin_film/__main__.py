@@ -133,28 +133,26 @@ def main():
             wavelength_buckets=args.wavelength_buckets,
         )
 
-        frames = render(
+        render(
             data,
             workers=args.workers,
             constants=constants,
             render_args=render_args,
         )
-        )
+        # if args.display:
+        #     im1 = plt.imshow(frames[0])
 
-        if args.display:
-            im1 = plt.imshow(frames[0])
+        #     def update(f):
+        #         im1.set_data(f)
 
-            def update(f):
-                im1.set_data(f)
-
-            plt.gca().invert_yaxis()
-            ani = FuncAnimation(
-                plt.gcf(),
-                func=update,
-                frames=frames,
-                interval=30,
-            )
-            plt.show()
+        #     plt.gca().invert_yaxis()
+        #     ani = FuncAnimation(
+        #         plt.gcf(),
+        #         func=update,
+        #         frames=frames,
+        #         interval=30,
+        #     )
+        #     plt.show()
 
 
 if __name__ == "__main__":
