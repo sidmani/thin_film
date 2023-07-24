@@ -30,7 +30,7 @@ def main():
         "--rest-height",
         type=float,
         help="the rest height (thickness) of the thin-film in meters. usually you want a value from 1e-7 to 5e-7.",
-        default=250e-9,
+        default=180e-9,
     )
     parser.add_argument(
         "--timesteps", type=int, help="the number of timesteps to simulate", default=10
@@ -48,7 +48,7 @@ def main():
         "--stiffness",
         type=float,
         help="the resistance of the fluid to compression",
-        default=10,
+        default=1e-1,
     )
     parser.add_argument(
         "--vorticity",

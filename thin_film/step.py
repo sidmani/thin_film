@@ -81,19 +81,6 @@ def update_fields(chunk, r, u, Gamma, num_h, kdtree, constants):
     return divergence, curvature, new_Gamma, vorticity
 
 
-def compute_boundary_force(r, nb_threshold, strength=1e-9):
-    scale = 10 / nb_threshold
-
-    # TODO: this clip may be unnecessary; assume everything is inside the bounds
-    x = scale * np.clip(r, 0, None) - 1 / 2
-    f_left = -3 * x * (1 + x**2) ** (-5 / 2)
-
-    x = scale * np.clip(1 - r, 0, None) - 1 / 2
-    f_right = -3 * x * (1 + x**2) ** (-5 / 2)
-
-    return (f_left - f_right) * strength
-
-
 def compute_forces(
     chunk,
     r,
@@ -136,8 +123,6 @@ def compute_forces(
             )
         )
 
-        boundary_force = compute_boundary_force(r[i], constants.nb_threshold)
-
         marangoni_force = (
             constants.V
             / num_h[i]
@@ -166,16 +151,15 @@ def compute_forces(
                 * (vorticity_lhs[[1, 0]] * np.array([1, -1]))
             )
 
-        # viscosity_force = (
-        #     constants.V**2
-        #     * constants.mu
-        #     * np.sum((aug_uij) / (aug_num_h)[:, np.newaxis] * grad_kernel_reduced, axis=0)
-        # )
+        gravity = np.array([0, -9.8 * constants.m]) * 1e-4
 
-        # force[i - chunk[0]] = pressure_force + marangoni_force + viscosity_force
-        force[i - chunk[0]] = pressure_force
-
-        force[i - chunk[0]] = viscosity_force + pressure_force
+        force[i - chunk[0]] = (
+            viscosity_force
+            + pressure_force
+            # + marangoni_force
+            + vorticity_force
+            + gravity
+        )
 
     return (force,)
 
@@ -222,10 +206,11 @@ def step(r, u, Gamma, constants, pool, max_chunk_size=500):
     )
 
     pressure = (
-        constants.stiffness * (num_h / constants.rest_height - 1)
-        # why is it multiplied by the curvature?
+        # might make more sense to only have a pressure to spread out
+        # instead of using a rest height, because the rest height is not physical
+        # under gravitational influence
+        constants.stiffness * (num_h / constants.rest_height)
         + constants.alpha_k * surface_tension * curvature
-        # is this sign correct?
         - constants.alpha_d * divergence
     )
 
